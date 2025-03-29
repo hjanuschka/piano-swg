@@ -11,42 +11,112 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/caarlos0/env"
 	"github.com/golang-jwt/jwt"
 	jwtgo "github.com/golang-jwt/jwt"
-	gauth "golang.org/x/oauth2/google"
+	"github.com/joho/godotenv"
+	"golang.org/x/oauth2/google"
 )
+
+// CreateUserRequest represents the request body for user creation
+type CreateUserRequest struct {
+	ReaderID string `json:"reader_id"`
+}
+
+// CreateUserResponse represents the response for user creation
+type CreateUserResponse struct {
+	Status  string `json:"status"`
+	Email   string `json:"email"`
+	PianoID string `json:"piano_id"`
+}
+
+// generateRandomPassword generates a random password of the specified length
+func generateRandomPassword(length int) (string, error) {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+	b := make([]byte, length)
+	for i := range b {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random number: %w", err)
+		}
+		b[i] = charset[n.Int64()]
+	}
+	return string(b), nil
+}
 
 // Config represents the Piano API configuration
 type Config struct {
-	AID            string
-	APIToken       string
-	JWTSecret      string
-	RestKey        string
-	Address        string
-	PianoType      string
-	Debug          bool
-	PrivateKey     string
-	TrinityEmptyID string
-	CookieDomain   string        // Domain for the cookie
-	CookieExpire   time.Duration // Cookie expiration duration
+	AID            string        `env:"PIANO_AID,required"`
+	APIToken       string        `env:"PIANO_API_TOKEN,required"`
+	JWTSecret      string        `env:"PIANO_JWT_SECRET,required"`
+	RestKey        string        `env:"PIANO_REST_KEY,required"`
+	Address        string        `env:"SERVER_ADDRESS" envDefault:":8080"`
+	PianoType      string        `env:"PIANO_TYPE,required"`
+	Debug          bool          `env:"DEBUG" envDefault:"false"`
+	PrivateKey     string        `env:"PIANO_PRIVATE_KEY,required"`
+	TrinityEmptyID string        `env:"TRINITY_EMPTY_ID" envDefault:"00000000-0000-0000-0000-000000000000"`
+	CookieDomain   string        `env:"COOKIE_DOMAIN,required"`
+	CookieExpire   time.Duration `env:"COOKIE_EXPIRE" envDefault:"720h"`
+}
+
+// Validate checks if the configuration is valid
+func (c *Config) Validate() error {
+	if c.AID == "" {
+		return fmt.Errorf("AID is required")
+	}
+	if c.APIToken == "" {
+		return fmt.Errorf("API token is required")
+	}
+	if c.JWTSecret == "" {
+		return fmt.Errorf("JWT secret is required")
+	}
+	if c.RestKey == "" {
+		return fmt.Errorf("Rest key is required")
+	}
+	if c.PianoType == "" {
+		return fmt.Errorf("Piano type is required")
+	}
+	if c.PrivateKey == "" {
+		return fmt.Errorf("Private key is required")
+	}
+	if c.CookieDomain == "" {
+		return fmt.Errorf("Cookie domain is required")
+	}
+	return nil
+}
+
+// LoadConfig loads configuration from environment variables
+func LoadConfig() (*Config, error) {
+	cfg := &Config{}
+	if err := env.Parse(cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+	return cfg, nil
 }
 
 // PianoAPI represents the Piano API client
 type PianoAPI struct {
-	Cfg Config
+	Cfg    Config
+	logger *log.Logger
 }
 
 // NewPianoAPI creates a new Piano API client
 func NewPianoAPI(cfg Config) *PianoAPI {
 	return &PianoAPI{
-		Cfg: cfg,
+		Cfg:    cfg,
+		logger: log.New(os.Stdout, "[PianoAPI] ", log.LstdFlags|log.Lshortfile),
 	}
 }
 
@@ -56,15 +126,27 @@ func (a *PianoAPI) baseRequest(base string, path string, query url.Values, body 
 	query.Add("api_token", a.Cfg.APIToken)
 
 	endpoint := fmt.Sprintf("https://%s.piano.io%s%s?%s", a.Cfg.PianoType, base, path, query.Encode())
+	if a.Cfg.Debug {
+		a.logger.Printf("Making request to: %s", endpoint)
+	}
 
 	responseBody := bytes.NewBuffer(body)
 	res, err := http.Post(endpoint, "application/json", responseBody)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer res.Body.Close()
 
-	return ioutil.ReadAll(res.Body)
+	respBody, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d, body: %s", res.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
 }
 
 // V1Request makes a v1 API request
@@ -101,18 +183,47 @@ func NewHTTPError(message string) HTTPError {
 	return HTTPError{Error: message}
 }
 
+// Response represents a standard API response
+type Response struct {
+	Status  string      `json:"status"`
+	Data    interface{} `json:"data,omitempty"`
+	Error   string      `json:"error,omitempty"`
+	Message string      `json:"message,omitempty"`
+}
+
+// NewResponse creates a new response
+func NewResponse(status string, data interface{}) Response {
+	return Response{
+		Status: status,
+		Data:   data,
+	}
+}
+
+// NewErrorResponse creates a new error response
+func NewErrorResponse(err error) Response {
+	return Response{
+		Status: "error",
+		Error:  err.Error(),
+	}
+}
+
 // SendResponse sends a JSON response
 func SendResponse(w http.ResponseWriter, r *http.Request, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
 }
 
 // findUserByEmail finds a user by email in Piano
-func findUserByEmail(email string) (string, error) {
+func (a *PianoAPI) findUserByEmail(email string) (string, error) {
 	params := url.Values{}
 	params.Add("email", email)
-	body, err := pianoAPI.V1Request("/publisher/users/get", params, nil)
+	body, err := a.V1Request("/publisher/users/get", params, nil)
 	if err != nil {
 		return "", err
 	}
@@ -132,10 +243,10 @@ func findUserByEmail(email string) (string, error) {
 }
 
 // createPianotoken creates a Piano token for a user
-func createPianotoken(pianoID string) string {
+func (a *PianoAPI) createPianotoken(pianoID string) string {
 	params := url.Values{}
 	params.Add("uid", pianoID)
-	body, err := pianoAPI.V1Request("/publisher/token", params, nil)
+	body, err := a.V1Request("/publisher/token", params, nil)
 	if err != nil {
 		return ""
 	}
@@ -148,7 +259,7 @@ func createPianotoken(pianoID string) string {
 	}
 
 	// Unpack and modify token
-	sDec, _ := base64.StdEncoding.DecodeString(pianoAPI.Cfg.JWTSecret)
+	sDec, _ := base64.StdEncoding.DecodeString(a.Cfg.JWTSecret)
 	token, err := jwt.Parse(result.AccessToken, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -164,7 +275,7 @@ func createPianotoken(pianoID string) string {
 
 	// Re-sign token
 	newToken := jwtgo.NewWithClaims(jwtgo.SigningMethodHS256, claims)
-	secr, err := base64.StdEncoding.DecodeString(pianoAPI.Cfg.JWTSecret)
+	secr, err := base64.StdEncoding.DecodeString(a.Cfg.JWTSecret)
 	if err != nil {
 		return ""
 	}
@@ -186,16 +297,16 @@ func formatPeriod(count int, unit string) string {
 }
 
 // swgStatus handles SWG status updates
-func swgStatus(statusReq SWGStatusRequest) error {
-	log.Printf("Updating SWG status for user: %s to state: %s", statusReq.Email, statusReq.State)
+func (a *PianoAPI) swgStatus(statusReq SWGStatusRequest) error {
+	a.logger.Printf("Updating SWG status for user: %s to state: %s", statusReq.Email, statusReq.State)
 
 	// Get pianoID and create token
-	pianoID, err := findUserByEmail(statusReq.Email)
+	pianoID, err := a.findUserByEmail(statusReq.Email)
 	if err != nil {
 		return fmt.Errorf("user not found: %v", err)
 	}
 
-	userToken := createPianotoken(pianoID)
+	userToken := a.createPianotoken(pianoID)
 	if userToken == "" {
 		return fmt.Errorf("failed to create token")
 	}
@@ -239,7 +350,7 @@ func swgStatus(statusReq SWGStatusRequest) error {
 		case "SWGPD.1566-8500-5281-95267":
 			termID = "TMPOF3VJ8RZC"
 		default:
-			log.Printf("Unknown product ID: %s, using default term ID", statusReq.ProductID)
+			a.logger.Printf("Unknown product ID: %s, using default term ID", statusReq.ProductID)
 		}
 	}
 
@@ -329,21 +440,78 @@ func swgStatus(statusReq SWGStatusRequest) error {
 	}
 
 	params := url.Values{}
-	res, err := pianoAPI.V3Request("/publisher/linkedTerm/event", params, payload)
+	res, err := a.V3Request("/publisher/linkedTerm/event", params, payload)
 	if err != nil {
 		return fmt.Errorf("failed to send event: %v", err)
 	}
 
-	log.Printf("Piano API response: %s", string(res))
+	a.logger.Printf("Piano API response: %s", string(res))
 	return nil
 }
 
-// SWGWebhookHandler handles webhooks from Google's SWG
-func SWGWebhookHandler(w http.ResponseWriter, r *http.Request) {
+// Server represents the HTTP server
+type Server struct {
+	cfg      *Config
+	pianoAPI *PianoAPI
+	server   *http.Server
+}
+
+// NewServer creates a new HTTP server
+func NewServer(cfg *Config, pianoAPI *PianoAPI) *Server {
+	return &Server{
+		cfg:      cfg,
+		pianoAPI: pianoAPI,
+	}
+}
+
+// Start starts the HTTP server
+func (s *Server) Start() error {
+	mux := http.NewServeMux()
+
+	// Register routes
+	mux.HandleFunc("/swg/webhook", s.handleWebhook)
+	mux.HandleFunc("/swg/create-user", s.handleCreateUser)
+
+	// Create server with timeouts
+	s.server = &http.Server{
+		Addr:         s.cfg.Address,
+		Handler:      Chain(mux, LoggingMiddleware, RecoveryMiddleware),
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// Handle graceful shutdown
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
+		}
+	}()
+
+	log.Printf("Server started on %s", s.cfg.Address)
+	<-done
+	log.Print("Server stopped")
+
+	// Give the server 5 seconds to finish current requests
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return s.server.Shutdown(ctx)
+}
+
+// handleWebhook handles webhook requests
+func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		SendResponse(w, r, http.StatusMethodNotAllowed, NewErrorResponse(fmt.Errorf("method not allowed")))
+		return
+	}
+
 	// Read and decode the webhook payload
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		SendResponse(w, r, http.StatusBadRequest, NewHTTPError("Failed to read request body"))
+		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("failed to read request body: %w", err)))
 		return
 	}
 
@@ -354,170 +522,84 @@ func SWGWebhookHandler(w http.ResponseWriter, r *http.Request) {
 		} `json:"message"`
 	}
 	if err := json.Unmarshal(body, &msg); err != nil {
-		SendResponse(w, r, http.StatusBadRequest, NewHTTPError("Failed to parse message"))
+		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("failed to parse message: %w", err)))
 		return
 	}
 
 	// Base64 decode the data field
 	decodedData, err := base64.StdEncoding.DecodeString(msg.Message.Data)
 	if err != nil {
-		SendResponse(w, r, http.StatusBadRequest, NewHTTPError("Failed to decode data"))
+		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("failed to decode data: %w", err)))
 		return
 	}
 
-	// Parse the decoded data into SWGHook
+	// Parse the decoded data
 	var inc struct {
 		ID                   string    `json:"id"`
 		CreateTime           time.Time `json:"createTime"`
 		EventType            string    `json:"eventType"`
 		EventObjectType      string    `json:"eventObjectType"`
 		UserEntitlementsPlan struct {
-			Name             string `json:"name"`
-			PublicationID    string `json:"publicationId"`
-			PlanType         string `json:"planType"`
-			PlanID           string `json:"planId"`
-			PlanEntitlements []struct {
-				Source            string    `json:"source"`
-				ProductIds        []string  `json:"productIds"`
-				ExpireTime        time.Time `json:"expireTime"`
-				SubscriptionToken string    `json:"subscriptionToken"`
-			} `json:"planEntitlements"`
-			RecurringPlanDetails struct {
-				RecurringPlanState string    `json:"recurringPlanState"`
-				UpdateTime         time.Time `json:"updateTime"`
-				CanceledDetails    struct {
-					CancelReason string `json:"cancelReason"`
-				} `json:"canceledDetails"`
-				RecurrenceTerms struct {
-					RecurrencePeriod struct {
-						Unit  string `json:"unit"`
-						Count int    `json:"count"`
-					} `json:"recurrencePeriod"`
-					FreeTrialPeriod   struct{} `json:"freeTrialPeriod"`
-					GracePeriodMillis string   `json:"gracePeriodMillis"`
-				} `json:"recurrenceTerms"`
-			} `json:"recurringPlanDetails"`
-			PurchaseInfo struct {
-				LatestOrderID string `json:"latestOrderId"`
-			} `json:"purchaseInfo"`
-			ReaderID string `json:"readerId"`
+			Name          string `json:"name"`
+			PublicationID string `json:"publicationId"`
+			PlanType      string `json:"planType"`
+			PlanID        string `json:"planId"`
 		} `json:"userEntitlementsPlan"`
 	}
 
 	if err := json.Unmarshal(decodedData, &inc); err != nil {
-		SendResponse(w, r, http.StatusBadRequest, NewHTTPError("Failed to parse webhook data"))
+		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("failed to parse webhook data: %w", err)))
 		return
 	}
 
-	// Extract productId from subscriptionToken
-	var subscriptionToken struct {
-		ProductID string `json:"productId"`
-	}
-	if err := json.Unmarshal([]byte(inc.UserEntitlementsPlan.PlanEntitlements[0].SubscriptionToken), &subscriptionToken); err != nil {
-		log.Printf("Error parsing subscription token: %v", err)
-		SendResponse(w, r, http.StatusBadRequest, NewHTTPError("Failed to parse subscription token"))
-		return
-	}
-
-	// Create status request
-	statusReq := SWGStatusRequest{
-		Email:     inc.UserEntitlementsPlan.ReaderID, // Using ReaderID as email for demo
-		State:     inc.EventType,
-		Unit:      inc.UserEntitlementsPlan.RecurringPlanDetails.RecurrenceTerms.RecurrencePeriod.Unit,
-		Count:     inc.UserEntitlementsPlan.RecurringPlanDetails.RecurrenceTerms.RecurrencePeriod.Count,
-		Until:     inc.UserEntitlementsPlan.PlanEntitlements[0].ExpireTime.Unix(),
-		ProductID: subscriptionToken.ProductID,
+	// Handle the event
+	switch inc.EventType {
+	case "SUBSCRIPTION_STARTED", "SUBSCRIPTION_CANCELED", "SUBSCRIPTION_WAITING_TO_CANCEL", "SUBSCRIPTION_WAITING_TO_RECUR":
+		err = s.pianoAPI.swgStatus(SWGStatusRequest{
+			Email:     inc.UserEntitlementsPlan.Name,
+			State:     inc.EventType,
+			Unit:      inc.UserEntitlementsPlan.PlanType,
+			Count:     0,
+			Until:     0,
+			ProductID: inc.UserEntitlementsPlan.PlanID,
+		})
+	default:
+		err = fmt.Errorf("unknown event type: %s", inc.EventType)
 	}
 
-	// Call swgStatus and handle any errors
-	if err := swgStatus(statusReq); err != nil {
-		SendResponse(w, r, http.StatusInternalServerError, NewHTTPError(err.Error()))
-		return
-	}
-
-	// Send success response
-	SendResponse(w, r, http.StatusOK, map[string]bool{"status": true})
-}
-
-// generateRandomPassword generates a random password string
-func generateRandomPassword(length int) (string, error) {
-	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return base64.URLEncoding.EncodeToString(bytes)[:length], nil
-}
-
-// createPianoUser creates a new user in Piano
-func createPianoUser(email string, password string) (string, error) {
-	params := url.Values{}
-	params.Add("email", email)
-	body, err := pianoAPI.V3Request("/publisher/user/register", params, nil)
 	if err != nil {
-		return "", err
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(err))
+		return
 	}
 
-	type createResult struct {
-		Data struct {
-			UID string `json:"uid"`
-		} `json:"data"`
-	}
-	cr := createResult{}
-	if err := json.Unmarshal(body, &cr); err != nil {
-		return "", err
-	}
-
-	if password != "" {
-		// Set password
-		params := url.Values{}
-		params.Add("uid", cr.Data.UID)
-		params.Add("password", password)
-		params.Add("current_password", password)
-		_, err := pianoAPI.V1Request("/publisher/password", params, nil)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	if cr.Data.UID == "" {
-		return "", fmt.Errorf("failed to create user")
-	}
-	return cr.Data.UID, nil
+	SendResponse(w, r, http.StatusOK, NewResponse("success", nil))
 }
 
-// CreateUserRequest represents the request to create a user
-type CreateUserRequest struct {
-	ReaderID string `json:"readerId"`
-	Partner  string `json:"partner"`
-}
+// handleCreateUser handles user creation requests
+func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		SendResponse(w, r, http.StatusMethodNotAllowed, NewErrorResponse(fmt.Errorf("method not allowed")))
+		return
+	}
 
-// CreateUserResponse represents the response from creating a user
-type CreateUserResponse struct {
-	Status  string `json:"status"`
-	Email   string `json:"email"`
-	PianoID string `json:"pianoId"`
-}
-
-// createUserHandler handles the creation of a Piano user from an SWG reader ID
-func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	var req CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		SendResponse(w, r, http.StatusBadRequest, NewHTTPError("Invalid request body"))
+		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("invalid request body: %w", err)))
 		return
 	}
 
 	// Get Google API credentials from environment
 	googleAuthJSON := os.Getenv("GOOGLE_AUTH_JSON")
 	if googleAuthJSON == "" {
-		SendResponse(w, r, http.StatusInternalServerError, NewHTTPError("Google auth configuration missing"))
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("Google auth configuration missing")))
 		return
 	}
 
 	// Configure Google API client
 	ctx := context.Background()
-	conf, err := gauth.JWTConfigFromJSON([]byte(googleAuthJSON), "https://www.googleapis.com/auth/subscribewithgoogle.publications.entitlements.readonly")
+	conf, err := google.JWTConfigFromJSON([]byte(googleAuthJSON), "https://www.googleapis.com/auth/subscribewithgoogle.publications.entitlements.readonly")
 	if err != nil {
-		SendResponse(w, r, http.StatusInternalServerError, NewHTTPError("Failed to configure Google API"))
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to configure Google API: %w", err)))
 		return
 	}
 
@@ -527,14 +609,14 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	apiURL := fmt.Sprintf("https://subscribewithgoogle.googleapis.com/v1/publications/krone.at/readers/%s", req.ReaderID)
 	resp, err := client.Get(apiURL)
 	if err != nil {
-		SendResponse(w, r, http.StatusInternalServerError, NewHTTPError("Failed to fetch user from Google"))
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to fetch user from Google: %w", err)))
 		return
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		SendResponse(w, r, http.StatusInternalServerError, NewHTTPError("Failed to read Google API response"))
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to read Google API response: %w", err)))
 		return
 	}
 
@@ -542,21 +624,21 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"emailAddress"`
 	}
 	if err := json.Unmarshal(body, &reader); err != nil {
-		SendResponse(w, r, http.StatusInternalServerError, NewHTTPError("Failed to parse Google API response"))
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to parse Google API response: %w", err)))
 		return
 	}
 
 	// Generate random password
 	password, err := generateRandomPassword(16)
 	if err != nil {
-		SendResponse(w, r, http.StatusInternalServerError, NewHTTPError("Failed to generate password"))
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to generate password: %w", err)))
 		return
 	}
 
 	// Create user in Piano
-	pianoID, err := createPianoUser(reader.Email, password)
+	pianoID, err := s.pianoAPI.createPianoUser(reader.Email, password)
 	if err != nil {
-		SendResponse(w, r, http.StatusInternalServerError, NewHTTPError("Failed to create Piano user"))
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to create Piano user: %w", err)))
 		return
 	}
 
@@ -566,18 +648,18 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	cFieldsJSON, _ := json.Marshal(fields)
 
-	params := make(url.Values)
+	params := url.Values{}
 	params.Add("uid", pianoID)
 	params.Add("custom_fields", string(cFieldsJSON))
-	_, err = pianoAPI.V1Request("/publisher/form", params, nil)
+	_, err = s.pianoAPI.V1Request("/publisher/form", params, nil)
 	if err != nil {
-		log.Printf("Warning: Failed to set custom field: %v", err)
+		s.pianoAPI.logger.Printf("Warning: Failed to set custom field: %v", err)
 	}
 
 	// Create Piano token
-	token := createPianotoken(pianoID)
+	token := s.pianoAPI.createPianotoken(pianoID)
 	if token == "" {
-		SendResponse(w, r, http.StatusInternalServerError, NewHTTPError("Failed to create Piano token"))
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to create Piano token")))
 		return
 	}
 
@@ -585,80 +667,111 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "__utp",
 		Value:    token,
-		Domain:   pianoAPI.Cfg.CookieDomain,
-		Expires:  time.Now().Add(pianoAPI.Cfg.CookieExpire),
+		Domain:   s.cfg.CookieDomain,
+		Expires:  time.Now().Add(s.cfg.CookieExpire),
 		Path:     "/",
 		Secure:   true,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	})
 
-	SendResponse(w, r, http.StatusOK, CreateUserResponse{
+	SendResponse(w, r, http.StatusOK, NewResponse("success", CreateUserResponse{
 		Status:  "OK",
 		Email:   reader.Email,
 		PianoID: pianoID,
+	}))
+}
+
+// Middleware represents a function that wraps an http.Handler
+type Middleware func(http.Handler) http.Handler
+
+// Chain applies middlewares to a handler
+func Chain(h http.Handler, middlewares ...Middleware) http.Handler {
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		h = middlewares[i](h)
+	}
+	return h
+}
+
+// LoggingMiddleware logs all requests
+func LoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.Printf("%s %s %s %v", r.Method, r.RequestURI, r.RemoteAddr, time.Since(start))
 	})
 }
 
-var pianoAPI *PianoAPI
+// RecoveryMiddleware recovers from panics
+func RecoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("panic: %v", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// createPianoUser creates a new user in Piano
+func (a *PianoAPI) createPianoUser(email string, password string) (string, error) {
+	params := url.Values{}
+	params.Add("email", email)
+	body, err := a.V3Request("/publisher/user/register", params, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to register user: %w", err)
+	}
+
+	type createResult struct {
+		Data struct {
+			UID string `json:"uid"`
+		} `json:"data"`
+	}
+	cr := createResult{}
+	if err := json.Unmarshal(body, &cr); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if password != "" {
+		// Set password
+		params := url.Values{}
+		params.Add("uid", cr.Data.UID)
+		params.Add("password", password)
+		params.Add("current_password", password)
+		_, err := a.V1Request("/publisher/password", params, nil)
+		if err != nil {
+			return "", fmt.Errorf("failed to set password: %w", err)
+		}
+	}
+
+	if cr.Data.UID == "" {
+		return "", fmt.Errorf("failed to create user: no UID returned")
+	}
+	return cr.Data.UID, nil
+}
 
 func main() {
-	// Parse cookie expiration duration from environment
-	cookieExpireStr := os.Getenv("COOKIE_EXPIRE")
-	if cookieExpireStr == "" {
-		cookieExpireStr = "720h" // Default to 30 days
+	// Load .env file
+	envPath := filepath.Join(".env")
+	if err := godotenv.Load(envPath); err != nil {
+		log.Printf("Warning: Failed to load .env file: %v", err)
+		log.Println("Using environment variables directly")
 	}
-	cookieExpire, err := time.ParseDuration(cookieExpireStr)
+
+	// Load configuration
+	cfg, err := LoadConfig()
 	if err != nil {
-		log.Fatalf("Invalid cookie expiration duration: %v", err)
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Initialize Piano API configuration
-	cfg := Config{
-		AID:            os.Getenv("PIANO_AID"),
-		APIToken:       os.Getenv("PIANO_API_TOKEN"),
-		JWTSecret:      os.Getenv("PIANO_JWT_SECRET"),
-		RestKey:        os.Getenv("PIANO_REST_KEY"),
-		Address:        ":8080",
-		PianoType:      os.Getenv("PIANO_TYPE"),
-		Debug:          true,
-		PrivateKey:     os.Getenv("PIANO_PRIVATE_KEY"),
-		TrinityEmptyID: "00000000-0000-0000-0000-000000000000",
-		CookieDomain:   os.Getenv("COOKIE_DOMAIN"),
-		CookieExpire:   cookieExpire,
-	}
+	// Create PianoAPI client
+	pianoAPI := NewPianoAPI(*cfg)
 
-	pianoAPI = NewPianoAPI(cfg)
-
-	// Set up routes
-	http.HandleFunc("/swg/webhook", SWGWebhookHandler)
-	http.HandleFunc("/swg/create-user", createUserHandler)
-
-	// Start server
-	server := &http.Server{
-		Addr:    cfg.Address,
-		Handler: nil,
-	}
-
-	// Handle graceful shutdown
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
-		}
-	}()
-
-	log.Printf("Server started on %s", cfg.Address)
-
-	<-done
-	log.Print("Server stopped")
-
-	// Give the server 5 seconds to finish current requests
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := server.Shutdown(ctx); err != nil {
-		log.Fatalf("Server shutdown failed: %v", err)
+	// Create and start server
+	server := NewServer(cfg, pianoAPI)
+	if err := server.Start(); err != nil {
+		log.Fatalf("Server failed: %v", err)
 	}
 }
