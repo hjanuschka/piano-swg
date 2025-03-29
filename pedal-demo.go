@@ -68,6 +68,7 @@ type Config struct {
 	CookieDomain   string        `env:"COOKIE_DOMAIN,required"`
 	CookieExpire   time.Duration `env:"COOKIE_EXPIRE" envDefault:"720h"`
 	ProductID      string        `env:"PRODUCT_ID" envDefault:"krone.at:showcase"`
+	PublicationID  string        `env:"PUBLICATION_ID" envDefault:"krone.at"`
 }
 
 // Validate checks if the configuration is valid
@@ -92,6 +93,9 @@ func (c *Config) Validate() error {
 	}
 	if c.CookieDomain == "" {
 		return fmt.Errorf("Cookie domain is required")
+	}
+	if c.PublicationID == "" {
+		return fmt.Errorf("Publication ID is required")
 	}
 	return nil
 }
@@ -128,6 +132,7 @@ func (a *PianoAPI) baseRequest(base string, path string, query url.Values, body 
 	query.Add("api_token", a.Cfg.APIToken)
 
 	endpoint := fmt.Sprintf("https://%s.piano.io%s%s?%s", a.Cfg.PianoType, base, path, query.Encode())
+	fmt.Println("endpoint", endpoint)
 	if a.Cfg.Debug {
 		a.logger.Printf("Making request to: %s", endpoint)
 	}
@@ -335,26 +340,8 @@ func (a *PianoAPI) swgStatus(statusReq SWGStatusRequest) error {
 		count = 0
 	}
 
-	// Map product ID to term ID
-	termID := "krn_swg1" // Default term ID
-	if statusReq.ProductID != "" {
-		switch statusReq.ProductID {
-		case "SWGPD.1753-5033-6108-05264":
-			termID = "TM5ABO7U1ZIL"
-		case "SWGPD.0797-0149-8011-19719":
-			termID = "TMJT5EVHNL1Q"
-		case "SWGPD.4958-2224-9507-43195":
-			termID = "TM9CD48918M7"
-		case "SWGPD.1775-0797-0744-86052":
-			termID = "TM6UZX09QJNK"
-		case "SWGPD.4647-7079-7234-14588":
-			termID = "TMMVYN314V9T"
-		case "SWGPD.1566-8500-5281-95267":
-			termID = "TMPOF3VJ8RZC"
-		default:
-			a.logger.Printf("Unknown product ID: %s, using default term ID", statusReq.ProductID)
-		}
-	}
+	termID := statusReq.ProductID
+	fmt.Println("termID", termID)
 
 	var subscriptionEvent map[string]interface{}
 	switch statusReq.State {
@@ -493,12 +480,14 @@ func (s *Server) Start() error {
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("Server starting on %s", s.cfg.Address)
+		if err := s.server.ListenAndServeTLS("certs/server.crt", "certs/server.key"); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %s\n", err)
 		}
 	}()
 
 	log.Printf("Server started on %s", s.cfg.Address)
+	log.Printf("Piano AID: %s", s.cfg.AID)
 	<-done
 	log.Print("Server stopped")
 
@@ -547,10 +536,17 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		EventType            string    `json:"eventType"`
 		EventObjectType      string    `json:"eventObjectType"`
 		UserEntitlementsPlan struct {
-			Name          string `json:"name"`
-			PublicationID string `json:"publicationId"`
-			PlanType      string `json:"planType"`
-			PlanID        string `json:"planId"`
+			Name             string `json:"name"`
+			PublicationID    string `json:"publicationId"`
+			PlanType         string `json:"planType"`
+			PlanID           string `json:"planId"`
+			ReaderID         string `json:"readerId"`
+			PlanEntitlements []struct {
+				Source            string   `json:"source"`
+				ProductIds        []string `json:"productIds"`
+				ExpireTime        string   `json:"expireTime"`
+				SubscriptionToken string   `json:"subscriptionToken"`
+			} `json:"planEntitlements"`
 		} `json:"userEntitlementsPlan"`
 	}
 
@@ -559,16 +555,70 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get Google API credentials from environment
+	googleAuthJSON := os.Getenv("GOOGLE_AUTH_JSON")
+	if googleAuthJSON == "" {
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("Google auth configuration missing")))
+		return
+	}
+
+	// Configure Google API client
+	ctx := context.Background()
+	conf, err := google.JWTConfigFromJSON([]byte(googleAuthJSON), "https://www.googleapis.com/auth/subscribewithgoogle.publications.entitlements.readonly")
+	if err != nil {
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to configure Google API: %w", err)))
+		return
+	}
+
+	client := conf.Client(ctx)
+
+	// Fetch user email from Google API using the reader ID
+	apiURL := fmt.Sprintf("https://subscribewithgoogle.googleapis.com/v1/publications/%s/readers/%s", s.cfg.PublicationID, inc.UserEntitlementsPlan.ReaderID)
+	fmt.Println("apiURL", apiURL)
+	resp, err := client.Get(apiURL)
+	if err != nil {
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to fetch user from Google: %w", err)))
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to read Google API response: %w", err)))
+		return
+	}
+
+	var reader struct {
+		Email string `json:"emailAddress"`
+	}
+	if err := json.Unmarshal(body, &reader); err != nil {
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to parse Google API response: %w", err)))
+		return
+	}
+
+	fmt.Println("body", string(body))
+
+	// Parse the subscription token to get the product ID
+	var subscriptionToken struct {
+		ProductID string `json:"productId"`
+	}
+	if len(inc.UserEntitlementsPlan.PlanEntitlements) > 0 {
+		if err := json.Unmarshal([]byte(inc.UserEntitlementsPlan.PlanEntitlements[0].SubscriptionToken), &subscriptionToken); err != nil {
+			SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to parse subscription token: %w", err)))
+			return
+		}
+	}
+
 	// Handle the event
 	switch inc.EventType {
 	case "SUBSCRIPTION_STARTED", "SUBSCRIPTION_CANCELED", "SUBSCRIPTION_WAITING_TO_CANCEL", "SUBSCRIPTION_WAITING_TO_RECUR":
 		err = s.pianoAPI.swgStatus(SWGStatusRequest{
-			Email:     inc.UserEntitlementsPlan.Name,
+			Email:     reader.Email,
 			State:     inc.EventType,
 			Unit:      inc.UserEntitlementsPlan.PlanType,
 			Count:     0,
 			Until:     0,
-			ProductID: inc.UserEntitlementsPlan.PlanID,
+			ProductID: subscriptionToken.ProductID,
 		})
 	default:
 		err = fmt.Errorf("unknown event type: %s", inc.EventType)
@@ -613,7 +663,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	client := conf.Client(ctx)
 
 	// Fetch user email from Google API
-	apiURL := fmt.Sprintf("https://subscribewithgoogle.googleapis.com/v1/publications/krone.at/readers/%s", req.ReaderID)
+	apiURL := fmt.Sprintf("https://subscribewithgoogle.googleapis.com/v1/publications/%s/readers/%s", s.cfg.PublicationID, req.ReaderID)
 	resp, err := client.Get(apiURL)
 	if err != nil {
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to fetch user from Google: %w", err)))
@@ -642,11 +692,15 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create user in Piano
-	pianoID, err := s.pianoAPI.createPianoUser(reader.Email, password)
+	// Check if user already exists
+	pianoID, err := s.pianoAPI.findUserByEmail(reader.Email)
 	if err != nil {
-		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to create Piano user: %w", err)))
-		return
+		// User doesn't exist, create new user
+		pianoID, err = s.pianoAPI.createPianoUser(reader.Email, password)
+		if err != nil {
+			SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to create Piano user: %w", err)))
+			return
+		}
 	}
 
 	// Set custom field for SWG reader ID
