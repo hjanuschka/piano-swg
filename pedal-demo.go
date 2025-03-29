@@ -691,14 +691,9 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 // DemoData represents the data passed to the demo template
 type DemoData struct {
-	Title          string
-	Subtitle       string
-	ArticleTitle   string
-	ArticleContent string
 	ButtonText     string
 	PaywallTitle   string
 	PaywallContent string
-	PublisherName  string
 	ProductID      string
 }
 
@@ -712,18 +707,13 @@ func (s *Server) handleDemo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := DemoData{
-		Title:          "Kronen Zeitung",
-		Subtitle:       "Premium Content Demo",
-		ArticleTitle:   "Breaking News: The Future of Digital Journalism",
-		ArticleContent: "In an era where information flows at unprecedented speeds, the landscape of journalism is undergoing a dramatic transformation. This exclusive article delves into the challenges and opportunities facing modern news organizations.",
-		ButtonText:     "Subscribe Now",
-		PaywallTitle:   "Premium Content",
-		PaywallContent: "Unlock this exclusive article and get access to our premium content library. Enjoy unlimited access to all our articles, exclusive interviews, and in-depth analysis.",
-		PublisherName:  "Kronen Zeitung",
+		ButtonText:     "Subscribe with Google",
+		PaywallTitle:   "Premium Article",
+		PaywallContent: "This article is only available to subscribers. Get access to all premium articles and exclusive content from Krone.",
 		ProductID:      s.cfg.ProductID,
 	}
 
-	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.Execute(w, data); err != nil {
 		log.Printf("Error executing template: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)

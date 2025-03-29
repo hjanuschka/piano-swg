@@ -1,19 +1,19 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>{{.Title}}</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Krone.at Premium</title>
     <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --primary-color: #e60012;
             --primary-dark: #cc0000;
             --primary-light: #ff1a1a;
-            --text-primary: #000000;
-            --text-secondary: #333333;
-            --background: #ffffff;
-            --surface: #f8f8f8;
-            --error: #d32f2f;
-            --header-height: 60px;
+            --text-color: #333;
+            --text-light: #666;
+            --background-color: #fff;
+            --article-width: 800px;
         }
 
         * {
@@ -25,91 +25,42 @@
         body {
             font-family: 'Open Sans', sans-serif;
             line-height: 1.6;
-            color: var(--text-primary);
-            background-color: var(--background);
-        }
-
-        .header {
-            background-color: var(--primary-color);
-            color: white;
-            height: var(--header-height);
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            z-index: 1000;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .header-content {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 20px;
-            height: 100%;
+            color: var(--text-color);
+            background-color: var(--background-color);
+            min-height: 100vh;
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: center;
+            padding: 1rem;
         }
 
-        .header h1 {
-            font-size: 24px;
-            font-weight: 700;
-            margin: 0;
-        }
-
-        .header p {
-            font-size: 14px;
-            opacity: 0.9;
-            margin: 0;
-        }
-
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
+        .premium-content {
+            background: linear-gradient(135deg, rgba(230,0,18,0.1), rgba(230,0,18,0.05));
+            border-left: 4px solid var(--primary-color);
             padding: 2rem;
-            margin-top: var(--header-height);
+            border-radius: 4px;
+            width: 100%;
+            max-width: var(--article-width);
+            text-align: center;
         }
 
-        .article {
-            background: var(--background);
-            padding: 2rem 0;
-        }
-
-        .article-header {
-            margin-bottom: 2rem;
-            border-bottom: 2px solid var(--primary-color);
-            padding-bottom: 1rem;
-        }
-
-        .article h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
+        .premium-content h2 {
+            color: var(--primary-color);
             margin-bottom: 1rem;
-            color: var(--text-primary);
-            line-height: 1.2;
+            font-size: 1.5rem;
         }
 
-        .article-meta {
-            color: var(--text-secondary);
-            font-size: 0.9rem;
-            margin-bottom: 1rem;
-        }
-
-        .article-content {
-            font-size: 1.1rem;
-            color: var(--text-secondary);
-            margin-bottom: 2rem;
+        .premium-content p {
+            color: var(--text-color);
+            margin-bottom: 1.5rem;
         }
 
         .button-container {
             text-align: center;
             margin: 2rem 0;
-            padding: 2rem;
-            background: var(--surface);
-            border-radius: 4px;
         }
 
-        .buy-button {
+        .subscribe-button {
             background-color: var(--primary-color);
             color: white;
             border: none;
@@ -118,132 +69,34 @@
             font-weight: 600;
             border-radius: 4px;
             cursor: pointer;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: background-color 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
-        .buy-button:hover {
+        .subscribe-button:hover {
             background-color: var(--primary-dark);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
         }
 
-        .buy-button:active {
-            transform: translateY(0);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        .subscribe-button:active {
+            transform: translateY(1px);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
         }
 
-        .c_paywall {
-            background: var(--surface);
-            padding: 2rem;
-            border-radius: 4px;
-            margin: 2rem 0;
-            border-left: 4px solid var(--primary-color);
-        }
-
-        .c_paywall h2 {
-            color: var(--primary-color);
-            font-size: 1.5rem;
-            margin-bottom: 1rem;
-            font-weight: 600;
-        }
-
-        .c_paywall p {
-            color: var(--text-secondary);
-            font-size: 1rem;
-        }
-
-        .article-image {
-            width: 100%;
-            height: 400px;
-            background-color: #ddd;
-            margin-bottom: 2rem;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        .article-image img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        @media (max-width: 600px) {
-            .container {
-                padding: 1rem;
-                margin-top: calc(var(--header-height) + 10px);
-            }
-            
-            .article {
-                padding: 1rem 0;
-            }
-            
-            .article h1 {
-                font-size: 2rem;
-            }
-
-            .article-image {
-                height: 250px;
+        @media (max-width: 768px) {
+            .premium-content {
+                padding: 1.5rem;
             }
         }
     </style>
 </head>
 <body>
-    <header class="header">
-        <div class="header-content">
-            <h1>{{.Title}}</h1>
-            <p>{{.Subtitle}}</p>
+    <div class="premium-content">
+        <h2>{{.PaywallTitle}}</h2>
+        <p>{{.PaywallContent}}</p>
+        <div class="button-container">
+            <button class="subscribe-button" onclick="window.callSwg((subscriptions) => { subscriptions.showOffers() });">{{.ButtonText}}</button>
         </div>
-    </header>
-
-    <div class="container">
-        <article class="article">
-            <div class="article-header">
-                <h1>{{.ArticleTitle}}</h1>
-                <div class="article-meta">
-                    {{.ArticleDate}} | {{.ArticleAuthor}}
-                </div>
-            </div>
-
-            <div class="article-image">
-                <img src="{{.ArticleImage}}" alt="{{.ArticleTitle}}">
-            </div>
-
-            <div class="article-content">
-                {{.ArticleContent}}
-            </div>
-            
-            <div class="button-container">
-                <button class="buy-button" onclick="window.callSwg((subscriptions) => { subscriptions.showOffers() })">
-                    {{.ButtonText}}
-                </button>
-            </div>
-
-            <div class="c_paywall">
-                <h2>{{.PaywallTitle}}</h2>
-                <p>{{.PaywallContent}}</p>
-            </div>
-        </article>
     </div>
-
-    <script type="application/ld+json">
-    {
-        "@context": "http://schema.org",
-        "@type": "NewsArticle",
-        "isAccessibleForFree": false,
-        "publisher": {
-            "@type": "Organization",
-            "name": "{{.PublisherName}}"
-        },
-        "isPartOf": {
-            "@type": ["CreativeWork", "Product"],
-            "name": "{{.PublisherName}}",
-            "productID": "{{.ProductID}}"
-        }
-    }
-    </script>
 
     <script src="/static/ea-standalone.js"></script>
 </body>
