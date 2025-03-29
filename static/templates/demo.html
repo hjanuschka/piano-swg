@@ -1,18 +1,19 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>SwG Demo</title>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <title>{{.Title}}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --primary-color: #1976d2;
-            --primary-dark: #1565c0;
-            --primary-light: #42a5f5;
-            --text-primary: #212121;
-            --text-secondary: #757575;
+            --primary-color: #e60012;
+            --primary-dark: #cc0000;
+            --primary-light: #ff1a1a;
+            --text-primary: #000000;
+            --text-secondary: #333333;
             --background: #ffffff;
-            --surface: #f5f5f5;
+            --surface: #f8f8f8;
             --error: #d32f2f;
+            --header-height: 60px;
         }
 
         * {
@@ -22,24 +23,62 @@
         }
 
         body {
-            font-family: 'Roboto', sans-serif;
+            font-family: 'Open Sans', sans-serif;
             line-height: 1.6;
             color: var(--text-primary);
             background-color: var(--background);
+        }
+
+        .header {
+            background-color: var(--primary-color);
+            color: white;
+            height: var(--header-height);
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+            margin: 0;
         }
 
         .container {
             max-width: 800px;
             margin: 0 auto;
             padding: 2rem;
+            margin-top: var(--header-height);
         }
 
         .article {
             background: var(--background);
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            padding: 2rem;
+            padding: 2rem 0;
+        }
+
+        .article-header {
             margin-bottom: 2rem;
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 1rem;
         }
 
         .article h1 {
@@ -47,17 +86,27 @@
             font-weight: 700;
             margin-bottom: 1rem;
             color: var(--text-primary);
+            line-height: 1.2;
         }
 
-        .article p {
+        .article-meta {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+
+        .article-content {
             font-size: 1.1rem;
             color: var(--text-secondary);
-            margin-bottom: 1.5rem;
+            margin-bottom: 2rem;
         }
 
         .button-container {
             text-align: center;
             margin: 2rem 0;
+            padding: 2rem;
+            background: var(--surface);
+            border-radius: 4px;
         }
 
         .buy-button {
@@ -66,7 +115,7 @@
             border: none;
             padding: 1rem 2rem;
             font-size: 1.1rem;
-            font-weight: 500;
+            font-weight: 600;
             border-radius: 4px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -89,7 +138,7 @@
         .c_paywall {
             background: var(--surface);
             padding: 2rem;
-            border-radius: 8px;
+            border-radius: 4px;
             margin: 2rem 0;
             border-left: 4px solid var(--primary-color);
         }
@@ -98,7 +147,7 @@
             color: var(--primary-color);
             font-size: 1.5rem;
             margin-bottom: 1rem;
-            font-weight: 500;
+            font-weight: 600;
         }
 
         .c_paywall p {
@@ -106,52 +155,65 @@
             font-size: 1rem;
         }
 
-        .header {
-            background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
-            color: white;
-            padding: 2rem 0;
+        .article-image {
+            width: 100%;
+            height: 400px;
+            background-color: #ddd;
             margin-bottom: 2rem;
-            text-align: center;
+            border-radius: 4px;
+            overflow: hidden;
         }
 
-        .header h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-
-        .header p {
-            font-size: 1.2rem;
-            opacity: 0.9;
+        .article-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
 
         @media (max-width: 600px) {
             .container {
                 padding: 1rem;
+                margin-top: calc(var(--header-height) + 10px);
             }
             
             .article {
-                padding: 1.5rem;
+                padding: 1rem 0;
             }
             
             .article h1 {
                 font-size: 2rem;
             }
+
+            .article-image {
+                height: 250px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="container">
+    <header class="header">
+        <div class="header-content">
             <h1>{{.Title}}</h1>
             <p>{{.Subtitle}}</p>
         </div>
-    </div>
+    </header>
 
     <div class="container">
-        <div class="article">
-            <h1>{{.ArticleTitle}}</h1>
-            <p>{{.ArticleContent}}</p>
+        <article class="article">
+            <div class="article-header">
+                <h1>{{.ArticleTitle}}</h1>
+                <div class="article-meta">
+                    {{.ArticleDate}} | {{.ArticleAuthor}}
+                </div>
+            </div>
+
+            <div class="article-image">
+                <img src="{{.ArticleImage}}" alt="{{.ArticleTitle}}">
+            </div>
+
+            <div class="article-content">
+                {{.ArticleContent}}
+            </div>
             
             <div class="button-container">
                 <button class="buy-button" onclick="window.callSwg((subscriptions) => { subscriptions.showOffers() })">
@@ -163,7 +225,7 @@
                 <h2>{{.PaywallTitle}}</h2>
                 <p>{{.PaywallContent}}</p>
             </div>
-        </div>
+        </article>
     </div>
 
     <script type="application/ld+json">
