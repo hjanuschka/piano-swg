@@ -22,11 +22,51 @@ import (
 	"time"
 
 	"github.com/caarlos0/env"
+	"github.com/fatih/color"
 	"github.com/golang-jwt/jwt"
 	jwtgo "github.com/golang-jwt/jwt"
 	"github.com/joho/godotenv"
 	"golang.org/x/oauth2/google"
 )
+
+// Logger represents a custom logger with colorized output
+type Logger struct {
+	infoLogger  *log.Logger
+	errorLogger *log.Logger
+	debugLogger *log.Logger
+	debug       bool
+}
+
+// NewLogger creates a new logger instance
+func NewLogger(debug bool) *Logger {
+	infoColor := color.New(color.FgGreen).SprintFunc()
+	errorColor := color.New(color.FgRed).SprintFunc()
+	debugColor := color.New(color.FgYellow).SprintFunc()
+
+	return &Logger{
+		infoLogger:  log.New(os.Stdout, infoColor("[INFO] "), log.LstdFlags|log.Lshortfile),
+		errorLogger: log.New(os.Stderr, errorColor("[ERROR] "), log.LstdFlags|log.Lshortfile),
+		debugLogger: log.New(os.Stdout, debugColor("[DEBUG] "), log.LstdFlags|log.Lshortfile),
+		debug:       debug,
+	}
+}
+
+// Info logs an info message
+func (l *Logger) Info(format string, v ...interface{}) {
+	l.infoLogger.Printf(format, v...)
+}
+
+// Error logs an error message
+func (l *Logger) Error(format string, v ...interface{}) {
+	l.errorLogger.Printf(format, v...)
+}
+
+// Debug logs a debug message
+func (l *Logger) Debug(format string, v ...interface{}) {
+	if l.debug {
+		l.debugLogger.Printf(format, v...)
+	}
+}
 
 // CreateUserRequest represents the request body for user creation
 type CreateUserRequest struct {
@@ -115,14 +155,14 @@ func LoadConfig() (*Config, error) {
 // PianoAPI represents the Piano API client
 type PianoAPI struct {
 	Cfg    Config
-	logger *log.Logger
+	logger *Logger
 }
 
 // NewPianoAPI creates a new Piano API client
 func NewPianoAPI(cfg Config) *PianoAPI {
 	return &PianoAPI{
 		Cfg:    cfg,
-		logger: log.New(os.Stdout, "[PianoAPI] ", log.LstdFlags|log.Lshortfile),
+		logger: NewLogger(cfg.Debug),
 	}
 }
 
@@ -132,27 +172,28 @@ func (a *PianoAPI) baseRequest(base string, path string, query url.Values, body 
 	query.Add("api_token", a.Cfg.APIToken)
 
 	endpoint := fmt.Sprintf("https://%s.piano.io%s%s?%s", a.Cfg.PianoType, base, path, query.Encode())
-	fmt.Println("endpoint", endpoint)
-	if a.Cfg.Debug {
-		a.logger.Printf("Making request to: %s", endpoint)
-	}
+	a.logger.Debug("Making request to: %s", endpoint)
 
 	responseBody := bytes.NewBuffer(body)
 	res, err := http.Post(endpoint, "application/json", responseBody)
 	if err != nil {
+		a.logger.Error("Failed to make request: %v", err)
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer res.Body.Close()
 
 	respBody, err := ioutil.ReadAll(res.Body)
 	if err != nil {
+		a.logger.Error("Failed to read response body: %v", err)
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	if res.StatusCode != http.StatusOK {
+		a.logger.Error("Unexpected status code: %d, body: %s", res.StatusCode, string(respBody))
 		return nil, fmt.Errorf("unexpected status code: %d, body: %s", res.StatusCode, string(respBody))
 	}
 
+	a.logger.Debug("Response received: %s", string(respBody))
 	return respBody, nil
 }
 
@@ -305,16 +346,18 @@ func formatPeriod(count int, unit string) string {
 
 // swgStatus handles SWG status updates
 func (a *PianoAPI) swgStatus(statusReq SWGStatusRequest) error {
-	a.logger.Printf("Updating SWG status for user: %s to state: %s", statusReq.Email, statusReq.State)
+	a.logger.Info("Updating SWG status for user: %s to state: %s", statusReq.Email, statusReq.State)
 
 	// Get pianoID and create token
 	pianoID, err := a.findUserByEmail(statusReq.Email)
 	if err != nil {
+		a.logger.Error("User not found: %v", err)
 		return fmt.Errorf("user not found: %v", err)
 	}
 
 	userToken := a.createPianotoken(pianoID)
 	if userToken == "" {
+		a.logger.Error("Failed to create token")
 		return fmt.Errorf("failed to create token")
 	}
 
@@ -341,11 +384,12 @@ func (a *PianoAPI) swgStatus(statusReq SWGStatusRequest) error {
 	}
 
 	termID := statusReq.ProductID
-	fmt.Println("termID", termID)
+	a.logger.Debug("Using term ID: %s", termID)
 
 	var subscriptionEvent map[string]interface{}
 	switch statusReq.State {
 	case "SUBSCRIPTION_STARTED":
+		a.logger.Info("Creating new subscription for user: %s", statusReq.Email)
 		subscriptionEvent = map[string]interface{}{
 			"action": "subscription_create",
 			"subscription": map[string]interface{}{
@@ -367,6 +411,7 @@ func (a *PianoAPI) swgStatus(statusReq SWGStatusRequest) error {
 			},
 		}
 	case "SUBSCRIPTION_CANCELED":
+		a.logger.Info("Terminating subscription for user: %s", statusReq.Email)
 		subscriptionEvent = map[string]interface{}{
 			"action": "subscription_terminate",
 			"subscription": map[string]interface{}{
@@ -384,6 +429,7 @@ func (a *PianoAPI) swgStatus(statusReq SWGStatusRequest) error {
 			},
 		}
 	case "SUBSCRIPTION_WAITING_TO_CANCEL":
+		a.logger.Info("Updating subscription (waiting to cancel) for user: %s", statusReq.Email)
 		subscriptionEvent = map[string]interface{}{
 			"action": "subscription_update",
 			"subscription": map[string]interface{}{
@@ -401,6 +447,7 @@ func (a *PianoAPI) swgStatus(statusReq SWGStatusRequest) error {
 			},
 		}
 	case "SUBSCRIPTION_WAITING_TO_RECUR":
+		a.logger.Info("Renewing subscription for user: %s", statusReq.Email)
 		subscriptionEvent = map[string]interface{}{
 			"action": "subscription_renew",
 			"subscription": map[string]interface{}{
@@ -425,16 +472,19 @@ func (a *PianoAPI) swgStatus(statusReq SWGStatusRequest) error {
 
 	payload, err := json.Marshal(subscriptionEvent)
 	if err != nil {
+		a.logger.Error("Failed to prepare event: %v", err)
 		return fmt.Errorf("failed to prepare event: %v", err)
 	}
 
 	params := url.Values{}
 	res, err := a.V3Request("/publisher/linkedTerm/event", params, payload)
 	if err != nil {
+		a.logger.Error("Failed to send event: %v", err)
 		return fmt.Errorf("failed to send event: %v", err)
 	}
 
-	a.logger.Printf("Piano API response: %s", string(res))
+	a.logger.Info("Successfully processed subscription event for user: %s", statusReq.Email)
+	a.logger.Debug("Piano API response: %s", string(res))
 	return nil
 }
 
