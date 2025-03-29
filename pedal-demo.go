@@ -695,55 +695,167 @@ func (s *Server) handleDemo(w http.ResponseWriter, r *http.Request) {
 <html>
 <head>
     <title>SwG Demo</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --primary-color: #1976d2;
+            --primary-dark: #1565c0;
+            --primary-light: #42a5f5;
+            --text-primary: #212121;
+            --text-secondary: #757575;
+            --background: #ffffff;
+            --surface: #f5f5f5;
+            --error: #d32f2f;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Roboto', sans-serif;
+            line-height: 1.6;
+            color: var(--text-primary);
+            background-color: var(--background);
+        }
+
+        .container {
             max-width: 800px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 2rem;
         }
+
         .article {
-            margin-bottom: 20px;
+            background: var(--background);
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 2rem;
+            margin-bottom: 2rem;
         }
-        .paywall {
-            display: none;
-            background: #f5f5f5;
-            padding: 20px;
-            margin: 20px 0;
-            border-radius: 5px;
+
+        .article h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
         }
-        .paywall.visible {
-            display: block;
+
+        .article p {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
         }
-        .buy-button {
-            background-color: #e60012;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            font-size: 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        .buy-button:hover {
-            background-color: #cc0000;
-        }
+
         .button-container {
             text-align: center;
-            margin: 20px 0;
+            margin: 2rem 0;
+        }
+
+        .buy-button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            font-size: 1.1rem;
+            font-weight: 500;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .buy-button:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
+        .buy-button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .c_paywall {
+            background: var(--surface);
+            padding: 2rem;
+            border-radius: 8px;
+            margin: 2rem 0;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .c_paywall h2 {
+            color: var(--primary-color);
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            font-weight: 500;
+        }
+
+        .c_paywall p {
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            .article {
+                padding: 1.5rem;
+            }
+            
+            .article h1 {
+                font-size: 2rem;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="article">
-        <h1>Demo Article</h1>
-        <p>This is a demo article with a paywall. Click the button below to subscribe.</p>
-        <div class="button-container">
-            <button class="buy-button" onclick="window.callSwg((subscriptions) => { subscriptions.showOffers() })">Buy</button>
+    <div class="header">
+        <div class="container">
+            <h1>Kronen Zeitung</h1>
+            <p>Premium Content Demo</p>
         </div>
-        <div class="c_paywall">
-            <h2>Premium Content</h2>
-            <p>This is premium content that requires a subscription.</p>
+    </div>
+
+    <div class="container">
+        <div class="article">
+            <h1>Breaking News: The Future of Digital Journalism</h1>
+            <p>In an era where information flows at unprecedented speeds, the landscape of journalism is undergoing a dramatic transformation. This exclusive article delves into the challenges and opportunities facing modern news organizations.</p>
+            
+            <div class="button-container">
+                <button class="buy-button" onclick="window.callSwg((subscriptions) => { subscriptions.showOffers() })">
+                    Subscribe Now
+                </button>
+            </div>
+
+            <div class="c_paywall">
+                <h2>Premium Content</h2>
+                <p>Unlock this exclusive article and get access to our premium content library. Enjoy unlimited access to all our articles, exclusive interviews, and in-depth analysis.</p>
+            </div>
         </div>
     </div>
 
