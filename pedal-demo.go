@@ -66,6 +66,7 @@ type Config struct {
 	TrinityEmptyID string        `env:"TRINITY_EMPTY_ID" envDefault:"00000000-0000-0000-0000-000000000000"`
 	CookieDomain   string        `env:"COOKIE_DOMAIN,required"`
 	CookieExpire   time.Duration `env:"COOKIE_EXPIRE" envDefault:"720h"`
+	ProductID      string        `env:"PRODUCT_ID" envDefault:"krone.at:showcase"`
 }
 
 // Validate checks if the configuration is valid
@@ -471,6 +472,11 @@ func (s *Server) Start() error {
 	// Register routes
 	mux.HandleFunc("/swg/webhook", s.handleWebhook)
 	mux.HandleFunc("/swg/create-user", s.handleCreateUser)
+	mux.HandleFunc("/demo", s.handleDemo)
+
+	// Serve static files
+	fs := http.FileServer(http.Dir("static"))
+	mux.Handle("/static/", http.StripPrefix("/static/", fs))
 
 	// Create server with timeouts
 	s.server = &http.Server{
@@ -680,6 +686,90 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Email:   reader.Email,
 		PianoID: pianoID,
 	}))
+}
+
+// handleDemo serves the demo page with SwG integration
+func (s *Server) handleDemo(w http.ResponseWriter, r *http.Request) {
+	html := `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SwG Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .article {
+            margin-bottom: 20px;
+        }
+        .paywall {
+            display: none;
+            background: #f5f5f5;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .paywall.visible {
+            display: block;
+        }
+        .buy-button {
+            background-color: #e60012;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .buy-button:hover {
+            background-color: #cc0000;
+        }
+        .button-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="article">
+        <h1>Demo Article</h1>
+        <p>This is a demo article with a paywall. Click the button below to subscribe.</p>
+        <div class="button-container">
+            <button class="buy-button" onclick="window.callSwg((subscriptions) => { subscriptions.showOffers() })">Buy</button>
+        </div>
+        <div class="c_paywall">
+            <h2>Premium Content</h2>
+            <p>This is premium content that requires a subscription.</p>
+        </div>
+    </div>
+
+    <script type="application/ld+json">
+    {
+        "@context": "http://schema.org",
+        "@type": "NewsArticle",
+        "isAccessibleForFree": false,
+        "publisher": {
+            "@type": "Organization",
+            "name": "Kronen Zeitung"
+        },
+        "isPartOf": {
+            "@type": ["CreativeWork", "Product"],
+            "name": "Kronen Zeitung",
+            "productID": "` + s.cfg.ProductID + `"
+        }
+    }
+    </script>
+
+    <script src="/static/ea-standalone.js"></script>
+</body>
+</html>
+`
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(html))
 }
 
 // Middleware represents a function that wraps an http.Handler
