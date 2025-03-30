@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -493,6 +494,7 @@ type Server struct {
 	cfg      *Config
 	pianoAPI *PianoAPI
 	server   *http.Server
+	logger   *Logger
 }
 
 // NewServer creates a new HTTP server
@@ -500,6 +502,7 @@ func NewServer(cfg *Config, pianoAPI *PianoAPI) *Server {
 	return &Server{
 		cfg:      cfg,
 		pianoAPI: pianoAPI,
+		logger:   NewLogger(cfg.Debug),
 	}
 }
 
@@ -530,16 +533,17 @@ func (s *Server) Start() error {
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("Server starting on %s", s.cfg.Address)
+		s.logger.Info("Server starting on %s", s.cfg.Address)
 		if err := s.server.ListenAndServeTLS("certs/server.crt", "certs/server.key"); err != nil && err != http.ErrServerClosed {
+			s.logger.Error("Server failed: %v", err)
 			log.Fatalf("listen: %s\n", err)
 		}
 	}()
 
-	log.Printf("Server started on %s", s.cfg.Address)
-	log.Printf("Piano AID: %s", s.cfg.AID)
+	s.logger.Info("Server started on %s", s.cfg.Address)
+	s.logger.Info("Piano AID: %s", s.cfg.AID)
 	<-done
-	log.Print("Server stopped")
+	s.logger.Info("Server stopped")
 
 	// Give the server 5 seconds to finish current requests
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -550,6 +554,7 @@ func (s *Server) Start() error {
 // handleWebhook handles webhook requests
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		s.logger.Error("Method not allowed: %s", r.Method)
 		SendResponse(w, r, http.StatusMethodNotAllowed, NewErrorResponse(fmt.Errorf("method not allowed")))
 		return
 	}
@@ -557,6 +562,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	// Read and decode the webhook payload
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
+		s.logger.Error("Failed to read request body: %v", err)
 		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("failed to read request body: %w", err)))
 		return
 	}
@@ -568,6 +574,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		} `json:"message"`
 	}
 	if err := json.Unmarshal(body, &msg); err != nil {
+		s.logger.Error("Failed to parse message: %v", err)
 		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("failed to parse message: %w", err)))
 		return
 	}
@@ -575,9 +582,12 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	// Base64 decode the data field
 	decodedData, err := base64.StdEncoding.DecodeString(msg.Message.Data)
 	if err != nil {
+		s.logger.Error("Failed to decode data: %v", err)
 		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("failed to decode data: %w", err)))
 		return
 	}
+
+	s.logger.Debug("Received webhook data: %s", string(decodedData))
 
 	// Parse the decoded data
 	var inc struct {
@@ -601,13 +611,17 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.Unmarshal(decodedData, &inc); err != nil {
+		s.logger.Error("Failed to parse webhook data: %v", err)
 		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("failed to parse webhook data: %w", err)))
 		return
 	}
 
+	s.logger.Info("Processing webhook event: %s for reader: %s", inc.EventType, inc.UserEntitlementsPlan.ReaderID)
+
 	// Get Google API credentials from environment
 	googleAuthJSON := os.Getenv("GOOGLE_AUTH_JSON")
 	if googleAuthJSON == "" {
+		s.logger.Error("Google auth configuration missing")
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("Google auth configuration missing")))
 		return
 	}
@@ -616,6 +630,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	conf, err := google.JWTConfigFromJSON([]byte(googleAuthJSON), "https://www.googleapis.com/auth/subscribewithgoogle.publications.entitlements.readonly")
 	if err != nil {
+		s.logger.Error("Failed to configure Google API: %v", err)
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to configure Google API: %w", err)))
 		return
 	}
@@ -624,9 +639,10 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch user email from Google API using the reader ID
 	apiURL := fmt.Sprintf("https://subscribewithgoogle.googleapis.com/v1/publications/%s/readers/%s", s.cfg.PublicationID, inc.UserEntitlementsPlan.ReaderID)
-	fmt.Println("apiURL", apiURL)
+	s.logger.Debug("Fetching user from Google API: %s", apiURL)
 	resp, err := client.Get(apiURL)
 	if err != nil {
+		s.logger.Error("Failed to fetch user from Google: %v", err)
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to fetch user from Google: %w", err)))
 		return
 	}
@@ -634,6 +650,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	body, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
+		s.logger.Error("Failed to read Google API response: %v", err)
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to read Google API response: %w", err)))
 		return
 	}
@@ -642,11 +659,12 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"emailAddress"`
 	}
 	if err := json.Unmarshal(body, &reader); err != nil {
+		s.logger.Error("Failed to parse Google API response: %v", err)
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to parse Google API response: %w", err)))
 		return
 	}
 
-	fmt.Println("body", string(body))
+	s.logger.Debug("Retrieved user email: %s", reader.Email)
 
 	// Parse the subscription token to get the product ID
 	var subscriptionToken struct {
@@ -654,10 +672,13 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(inc.UserEntitlementsPlan.PlanEntitlements) > 0 {
 		if err := json.Unmarshal([]byte(inc.UserEntitlementsPlan.PlanEntitlements[0].SubscriptionToken), &subscriptionToken); err != nil {
+			s.logger.Error("Failed to parse subscription token: %v", err)
 			SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to parse subscription token: %w", err)))
 			return
 		}
 	}
+
+	s.logger.Debug("Using product ID: %s", subscriptionToken.ProductID)
 
 	// Handle the event
 	switch inc.EventType {
@@ -671,33 +692,41 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			ProductID: subscriptionToken.ProductID,
 		})
 	default:
+		s.logger.Error("Unknown event type: %s", inc.EventType)
 		err = fmt.Errorf("unknown event type: %s", inc.EventType)
 	}
 
 	if err != nil {
+		s.logger.Error("Failed to process webhook: %v", err)
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(err))
 		return
 	}
 
+	s.logger.Info("Successfully processed webhook for user: %s", reader.Email)
 	SendResponse(w, r, http.StatusOK, NewResponse("success", nil))
 }
 
 // handleCreateUser handles user creation requests
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		s.logger.Error("Method not allowed: %s", r.Method)
 		SendResponse(w, r, http.StatusMethodNotAllowed, NewErrorResponse(fmt.Errorf("method not allowed")))
 		return
 	}
 
 	var req CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error("Invalid request body: %v", err)
 		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("invalid request body: %w", err)))
 		return
 	}
 
+	s.logger.Info("Creating user for reader ID: %s", req.ReaderID)
+
 	// Get Google API credentials from environment
 	googleAuthJSON := os.Getenv("GOOGLE_AUTH_JSON")
 	if googleAuthJSON == "" {
+		s.logger.Error("Google auth configuration missing")
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("Google auth configuration missing")))
 		return
 	}
@@ -706,6 +735,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	conf, err := google.JWTConfigFromJSON([]byte(googleAuthJSON), "https://www.googleapis.com/auth/subscribewithgoogle.publications.entitlements.readonly")
 	if err != nil {
+		s.logger.Error("Failed to configure Google API: %v", err)
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to configure Google API: %w", err)))
 		return
 	}
@@ -714,8 +744,10 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch user email from Google API
 	apiURL := fmt.Sprintf("https://subscribewithgoogle.googleapis.com/v1/publications/%s/readers/%s", s.cfg.PublicationID, req.ReaderID)
+	s.logger.Debug("Fetching user from Google API: %s", apiURL)
 	resp, err := client.Get(apiURL)
 	if err != nil {
+		s.logger.Error("Failed to fetch user from Google: %v", err)
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to fetch user from Google: %w", err)))
 		return
 	}
@@ -723,6 +755,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
+		s.logger.Error("Failed to read Google API response: %v", err)
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to read Google API response: %w", err)))
 		return
 	}
@@ -731,13 +764,17 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"emailAddress"`
 	}
 	if err := json.Unmarshal(body, &reader); err != nil {
+		s.logger.Error("Failed to parse Google API response: %v", err)
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to parse Google API response: %w", err)))
 		return
 	}
 
+	s.logger.Debug("Retrieved user email: %s", reader.Email)
+
 	// Generate random password
 	password, err := generateRandomPassword(16)
 	if err != nil {
+		s.logger.Error("Failed to generate password: %v", err)
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to generate password: %w", err)))
 		return
 	}
@@ -745,12 +782,17 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	// Check if user already exists
 	pianoID, err := s.pianoAPI.findUserByEmail(reader.Email)
 	if err != nil {
+		s.logger.Info("Creating new Piano user for email: %s", reader.Email)
 		// User doesn't exist, create new user
 		pianoID, err = s.pianoAPI.createPianoUser(reader.Email, password)
 		if err != nil {
+			s.logger.Error("Failed to create Piano user: %v", err)
 			SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to create Piano user: %w", err)))
 			return
 		}
+		s.logger.Info("Created new Piano user with ID: %s", pianoID)
+	} else {
+		s.logger.Info("Found existing Piano user with ID: %s", pianoID)
 	}
 
 	// Set custom field for SWG reader ID
@@ -764,12 +806,14 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	params.Add("custom_fields", string(cFieldsJSON))
 	_, err = s.pianoAPI.V1Request("/publisher/form", params, nil)
 	if err != nil {
-		s.pianoAPI.logger.Printf("Warning: Failed to set custom field: %v", err)
+		s.logger.Error("Failed to set custom field: %v", err)
+		s.pianoAPI.logger.Debug("Warning: Failed to set custom field: %v", err)
 	}
 
 	// Create Piano token
 	token := s.pianoAPI.createPianotoken(pianoID)
 	if token == "" {
+		s.logger.Error("Failed to create Piano token")
 		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to create Piano token")))
 		return
 	}
@@ -786,6 +830,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 	})
 
+	s.logger.Info("Successfully created/updated user for email: %s", reader.Email)
 	SendResponse(w, r, http.StatusOK, NewResponse("success", CreateUserResponse{
 		Status:  "OK",
 		Email:   reader.Email,
@@ -896,6 +941,10 @@ func (a *PianoAPI) createPianoUser(email string, password string) (string, error
 }
 
 func main() {
+	// Parse command line flags
+	debug := flag.Bool("debug", false, "Enable debug mode")
+	flag.Parse()
+
 	// Load .env file
 	envPath := filepath.Join(".env")
 	if err := godotenv.Load(envPath); err != nil {
@@ -908,6 +957,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	// Override debug setting from command line
+	cfg.Debug = *debug
 
 	// Create PianoAPI client
 	pianoAPI := NewPianoAPI(*cfg)

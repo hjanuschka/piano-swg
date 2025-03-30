@@ -1,0 +1,198 @@
+Startseite
+Produkte
+reader-revenue
+Monetarisierung
+War das hilfreich?
+
+Monetization API 
+
+bookmark_border
+
+In diesem Abschnitt wird beschrieben, wie du dein Google Cloud-Projekt so konfigurierst, dass die Monetarisierungs-API von „Abonnieren mit Google“ aktiviert und verwendet wird. Über die API kannst du Informationen zu EntitlementsPlans, Orders und Readers abrufen. Du kannst sie beispielsweise in einem Server-zu-Server-Kontext verwenden.
+
+Endpunkt-Authentifizierung mit Dienstkonten
+Der Zugriff auf die Monetization API-Endpunkte kann über ein entsprechend konfiguriertes Dienstkonto erfolgen.
+
+Erstelle ein Dienstkonto in der Konsole deines Projekts.
+Erstelle Anmeldedaten für das Dienstkonto und speichere die Datei credentials.json an einem sicheren Ort, auf den deine Anwendung zugreifen kann.
+Nachdem du ein Dienstkonto und Anmeldedaten erstellt hast, kannst du die Endpunkte direkt oder über eine Clientbibliothek aufrufen.
+
+Achtung: Dienstkontoschlüssel stellen ein Sicherheitsrisiko dar, wenn sie nicht ordnungsgemäß verwaltet werden. Sie sollten nach Möglichkeit eine sicherere Alternative zu Dienstkontoschlüsseln auswählen. Wenn Sie sich mit einem Dienstkontoschlüssel authentifizieren, sind Sie für die Sicherheit des privaten Schlüssels und für andere Verwaltungsvorgänge wie die Schlüsselrotation verantwortlich. Weitere Informationen finden Sie unter Best Practices für die Verwaltung von Dienstkontoschlüsseln.
+Pflichtfelder abrufen
+Für jeden der Monetization API-Endpunkte werden einige Daten benötigt, um die Anfrage zu bilden. Diese Daten stammen oft von einem anderen Endpunkt oder sind dem Verlag oder Webpublisher aus anderen Quellen bekannt.
+
+publicationId:Kann im Publisher Center eingesehen werden.
+readerId:Wird entweder wie in swg.js konfiguriert von dem setOnPaymentResponse()-Event-Handler zurückgegeben, unter Verwendung vieler Nutzlasten in einer Pub/Sub-Benachrichtigung oder in der Publication API mit einem accessToken mit entsprechendem Zugriffsbereich.
+orderId:Wird unter Verwendung vieler Nutzlasten in einer Pub/Sub-Benachrichtigung zurückgegeben und ist als latestOrderId in der purchaseInfo-Eigenschaft in den EntitlementsPlans-Plandetails verfügbar.
+Verfügbare Endpunkte
+Mit der Monetization API kannst du Folgendes abrufen: Berechtigungen für einen angemeldeten Nutzer, bisherige Käufe für einen Abonnenten, die Details zu bisherigen Käufen einer bestimmten Berechtigung eines Abonnenten oder Daten eines Lesers.
+
+EntitlementsPlans: Gibt detaillierte Informationen zu allen Abos zurück, die mit allen Berechtigungen eines Abonnenten verknüpft sind.
+EntitlementsPlan nach planId: Gibt detaillierte Informationen zur angegebenen planId zurück.
+Orders: Ermöglicht das Abrufen detaillierter Informationen zu einer orderId aus einem EntitlementsPlan.
+Readers: Ruft Leserdaten über eine readerId ab.
+EntitlementsPlans
+Der EntitlementsPlans-Endpunkt gibt die bisherigen Käufe für alle Berechtigungen zurück, die zu einer readerId gehören.
+
+GET-Anfrage:
+
+
+https://subscribewithgoogle.googleapis.com/v1/publications/publicationId/readers/readerId/entitlementsplans
+JSON-codierte Antwort:
+
+
+{
+  "userEntitlementsPlans": [
+    {
+      "name": "publications/CAowqfCKCw/readers/4df0faf26630a56329a137ccbfc5d464/entitlementplans/07d4d8f1967ab4a2091c0dce19b371c3",
+      "publicationId": "CAowqfCKCw",
+      "readerId": "4df0faf26630a56329a137ccbfc5d464",
+      "planType": "SUBSCRIPTION",
+      "planId": "07d4d8f1967ab4a2091c0dce19b371c3",
+      "planEntitlements": [
+        {
+          "source": "google:subscriber",
+          "productIds": [
+            "CAowqfCKCw:basic",
+            "CAowqfCKCw:openaccess"
+          ],
+          "expireTime": "2024-01-01T21:30:59.423Z",
+          "subscriptionToken": "{\"autoRenewing\":true,\"orderId\":\"SWG.5741-4307-5057-27419\",\"productId\":\"SWGPD.1364-3969-4803-51719\",\"purchaseTime\":1698957064232,\"waitingToCancel\":false,\"fixRequired\":false}"
+        }
+      ],
+      "recurringPlanDetails": {
+        "recurringPlanState": "WAITING_TO_RECUR",
+        "updateTime": "2023-11-02T20:31:09.332426Z",
+        "waitingToRecurDetails": {
+          "nextRecurrenceTime": "2023-12-02T21:30:59.423Z",
+          "freeTrial": false
+        },
+        "recurrenceTerms": {
+          "recurrencePeriod": {
+            "unit": "MONTHLY",
+            "count": 1
+          },
+          "freeTrialPeriod": {},
+          "gracePeriodMillis": "2592000000"
+        }
+      },
+      "purchaseInfo": {
+        "latestOrderId": "SWG.4490-9540-3669-49874"
+      }
+    }
+  ]
+}
+Hat der Nutzer keine Berechtigungen, ist die API-Antwort ein leeres JSON-Objekt:
+
+
+{}
+EntitlementsPlans-Details
+Die EntitlementsPlans-Antwort enthält die Berechtigungen vom /entitlements-Endpunkt sowie Daten zum Kauf des Angebots, über das die Berechtigung gewährt wurde.
+
+Objektschlüssel und ihre Beschreibungen
+name	
+Automatisch generierter Name des Berechtigungsplans, basierend auf der Quellpublikation.
+
+publicationId	
+Die publicationId aus der konfigurierten Publikation im Publisher Center.
+
+planType	
+Die Art des Tarifs, entweder ABO oder UNTERSTÜTZUNGSBEITRAG.
+
+planEntitlements	
+Die Berechtigungsantwort, die mit der /entitlements-Antwort der Publication API identisch ist.
+
+recurringPlanDetails	
+Details zum Angebot, das zum Erwerb der Berechtigung für den Abonnenten gekauft wird. Zu den wichtigsten Informationen gehören:
+
+recurringPlanState:Aktueller Abostatus, der dem Status in der letzten Pub/Sub-Benachrichtigung entsprechen sollte.
+updateTime:Der Zeitstempel der letzten Aktualisierung der Berechtigungsänderung.
+waitingToRecurDetails:Ein Objekt, das angibt, wann das Abo das nächste Mal aktualisiert wird. Beispielsweise, wann die Zahlungsmethode wieder belastet wird.
+recurrenceTerms:Ein Objekt, das die Details des gekauften Angebots darstellt, einschließlich des Abrechnungszyklus.
+EntitlementsPlan nach planId
+Der EntitlementsPlan-Endpunkt gibt Details über die bisherigen Käufe für eine bestimmte planId zurück, die zu einer readerId gehört. Die Antwort ist eine Teilmenge der entitlementsPlans-Antwort.
+
+GET-Anfrage:
+
+
+https://subscribewithgoogle.googleapis.com/v1/publications/publicationId/readers/readerId/entitlementsplans/planId
+Bestellungen nach orderId
+Der Orders-Endpunkt gibt die Bestelldaten einer bestimmten orderId zurück, die zu einer readerId gehört.
+
+Zum Abrufen einer Bestellung müssen die publicationId, die readerId und die orderId bekannt sein, um die Anfrage zu bilden.
+
+GET-Anfrage:
+
+
+https://subscribewithgoogle.googleapis.com/v1/publications/publicationId/readers/readerId/orders/orderId
+JSON-codierte Antwort:
+
+
+{
+  "name": "publications/CAowqfCKCw/readers/abcd-1234/orders/SWG.1234-5678-9101-11213",
+  "orderId": "SWG.1234-5678-9101-11213",
+  "stateDetails": [
+    {
+      "orderState": "CHARGED",
+      "time": "2024-01-19T00:14:04.366Z",
+      "amount": {
+        "currencyCode": "USD",
+        "units": "1",
+        "nanos": 0
+      }
+    }
+  ]
+}
+Wichtige Objektschlüssel und ihre Beschreibungen
+name	
+Automatisch generierter Name der Bestellung, basierend auf der Quellpublikation und readerId.
+
+orderId	
+Die angeforderte orderId, die über den entitlementsPlans-Endpunkt abgerufen werden kann.
+
+stateDetails	
+Eine Reihe von Statusänderungen einer Bestellung.
+
+orderState	
+Der aktuelle Status einer Bestellung. folgende Arten von Werten sind möglich:
+
+UNKNOWN_STATE
+DECLINED
+CHARGED
+CANCELED
+REFUNDED
+CHARGE_PENDING
+Leser nach readerId
+Der Readers-Endpunkt gibt die Informationen zu einer bestimmten readerId zurück.
+
+Zum Abrufen eines Lesers benötigst du die publicationId, um die Anfrage zu bilden.
+
+GET-Anfrage:
+
+
+https://subscribewithgoogle.googleapis.com/v1/publications/publicationId/readers/readerId
+JSON-codierte Antwort:
+
+
+{
+  "name": "publications/CAowqfCKCw/readers/abcd-1234",
+  "readerId": "abcd-1234",
+  "displayName": "Reader Name",
+  "emailAddress": "email@domain.tld",
+  "givenName": "Reader",
+  "familyName": "Name",
+  "isReaderInfoAvailable": true
+}
+Wichtige Objektschlüssel und ihre Beschreibungen
+name	
+Automatisch generierter Name der Bestellung, basierend auf der Quellpublikation und readerId.
+
+emailAddress	
+Die mit dem Leser verknüpfte E-Mail-Adresse.
+
+displayName	
+Das Rendering der Properties givenName und familyName.
+
+isReaderInfoAvailable	
+Ein boolescher Wert, der angibt, ob Leserinformationen verfügbar sind. Bei einigen Lesern sind Informationen womöglich nicht zugänglich, beispielsweise bei durch Aboverknüpfung generierten Lesern.
+

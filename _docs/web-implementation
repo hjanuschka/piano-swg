@@ -1,0 +1,818 @@
+Startseite
+Produkte
+Subscribe
+Erweiterter Zugriff
+War das hilfreich?
+
+Webimplementierung 
+
+bookmark_border
+
+Nachdem du die Konfiguration abgeschlossen hast, kannst du mit der Implementierung fortfahren.
+
+Als ersten Schritt musst du das Markup für strukturierte Daten hinzufügen, damit die Clientbibliotheken erkennen, ob sich der Artikel hinter einer Paywall befindet. Danach musst du ein userState-Objekt erstellen, das den aktuellen Nutzer auf deiner Website darstellt, und die Clientbibliothek mit diesem „userState“-Objekt initialisieren. Im Rahmen der Initialisierung musst du auch Callbacks bereitstellen, um alle unterschiedlichen Ergebnisse in der folgenden Tabelle zu verarbeiten:
+
+Anwendungsfall und Ergebnis
+Anonymer Nutzer ohne Zugriff	
+In diesem Fall wird dem Nutzer die Registrierungsaufforderung angezeigt, mit der er sich in einem vorhandenen Konto beim Verlag oder Webpublisher anmelden oder sich mit seinem Google-Konto für ein neues Konto registrieren kann.
+
+Du musst Callback-Funktionen für die Anmeldung bestehender Nutzer und die Registrierung neuer Nutzer bereitstellen.
+
+Anonymer Nutzer mit Zugriff über das Messtool des Verlags oder Webpublishers	
+Der Nutzer sieht keine Aufforderungen von Google.
+
+Die API sendet den Grund für die Berechtigung des Verlags oder Webpublishers an Google.
+
+Angemeldeter registrierter Nutzer ohne Zugriff	
+Google prüft mit der ID und registrationTimestamp den erweiterten Zugriff.
+
+Wenn Google den erweiterten Zugriff gewährt, zeigt die API dem Nutzer die Aufforderung für den erweiterten Zugriff an. Der Nutzer kann dann die Aufforderung schließen, um den Artikel zu lesen, oder direkt über die Aufforderung ein Abo abschließen.
+
+Du musst Callback-Funktionen zur Bearbeitung von erweiterten Zugriffsberechtigungen bereitstellen.
+
+Hinweis: Die API zeigt nach einer neuen Registrierung auf der ersten Artikelseite 30 Sekunden lang keine Aufforderung für den erweiterten Zugriff an.
+Angemeldeter registrierter Nutzer mit Zugriff über das Messtool des Verlags oder Webpublishers	
+Der Nutzer sieht keine Aufforderungen von Google.
+
+Die API sendet den Grund für die Berechtigung des Verlags oder Webpublishers an Google.
+
+Registrierter Nutzer mit Zugriff über ein Abo des Verlags oder Webpublishers	
+Der Nutzer sieht keine Aufforderungen von Google.
+
+Die API sendet den Grund für die Berechtigung des Verlags oder Webpublishers an Google.
+
+Clientseitige und serverseitige Paywall im Vergleich
+Der allgemeine Ablauf ist der gleiche, unabhängig davon, ob du eine clientseitige oder serverseitige Paywall ausführst. Allerdings sind folgende wesentliche Unterschiede zu beachten:
+
+Aktivität	Clientseitige Paywall	Serverseitige Paywall
+GAA-Bibliothek initialisieren	GAA setzt paywallType standardmäßig auf 'CLIENT_SIDE'.	Der Verlag oder Webpublisher setzt paywallType auf 'SERVER_SIDE'.
+Google-Berechtigung prüfen	GAA führt den Vorgang auf Clientseite aus.	Der Verlag oder Webpublisher ruft auf der Serverseite die Showcase Entitlements API auf.
+Google-Berechtigung verbrauchen	GAA führt den Vorgang auf Clientseite aus.	Der Verlag oder Webpublisher übergibt showcaseEntitlement (JWT) zum Verbrauchen an die GAA-Bibliothek.
+Artikel freischalten, wenn der Nutzer Zugriff hat	GAA ruft die unlockArticle-Funktion auf Clientseite auf.	Der Verlag oder Webpublisher führt das Rendering auf der Serverseite aus.
+Paywall einblenden, wenn der Nutzer keinen Zugriff hat	GAA ruft die showPaywall-Funktion auf Clientseite auf.	Der Verlag oder Webpublisher führt das Rendering auf der Serverseite aus.
+Außerdem musst du showPaywall bereitstellen, damit GAA einen Klick auf die Abonnieren-Schaltfläche in der Aufforderung für den erweiterten Zugriff verarbeiten kann.
+
+Hinweis: Mit den folgenden Schaltflächen kannst du auswählen, welche Art von Paywall du verwendest. Bei Bedarf wird der Inhalt dieses Leitfadens neu geladen und an deine Auswahl angepasst.
+Clientseitige Paywall Serverseitige Paywall
+Markup für strukturierte Daten hinzufügen
+Füge Folgendes auf allen Artikelseiten ein:
+
+Erforderliche Attribute
+
+
+"publisher": {
+    "@type": "Organization",
+    "name": "The Example Times"
+  }
+Dieser wird in der Registrierungsaufforderung für den erweiterten Zugriff verwendet.
+
+@type	Der Typ muss CreativeWork enthalten oder eine der folgenden spezifischen schema.org-Typen von CreativeWork:
+Article
+NewsArticle
+Blog
+Comment
+Course
+HowTo
+Message
+Review
+WebPage
+Du kannst mehrere schema.org-Typen verwenden:
+
+"@type": ["CreativeWork","Article","Person"]
+
+isAccessibleForFree	
+Wenn dieses Attribut auf „false“ gesetzt ist, befinden sich die Inhalte hinter der Paywall.
+
+Wenn dieses Attribut auf „true“ gesetzt ist, sind die Inhalte kostenlos verfügbar.
+
+isPartOf[@type]	
+Diese Property muss das folgende Format haben:
+
+isPartOf[@type=Product]
+
+isPartOf[productID]	
+Verwende das Format publicationId:label, wie im folgenden Beispiel gezeigt:
+
+"productID": "exampletimes.com:showcase"
+
+Du musst eine productID in isPartOf angeben, um festzulegen, welche Berechtigung für den Zugriff auf die Inhalte erforderlich ist.
+
+publisher.name	
+Hier muss der Name der Publikation festgelegt werden, zum Beispiel:
+
+Beispielcode
+
+<script type="application/ld+json">
+{
+    "@context": "http://schema.org",
+    "@type": "NewsArticle",
+    "isAccessibleForFree": false,
+    "isPartOf": {
+        "@type": ["CreativeWork", "Product"],
+        "name": "The Example Times",
+        "productID": "example.com:showcase"
+    },
+    "publisher": {
+        "@type": "Organization",
+        "name": "The Example Times"
+    }
+}
+</script>
+Clientbibliotheken hinzufügen
+Füge die swg.js-, swg-gaa.js- und Identitäts-Clientbibliotheken auf allen Nicht-AMP-Artikelseiten ein.
+
+
+<script async src="https://accounts.google.com/gsi/client" defer></script>
+<script async subscriptions-control="manual" src="https://news.google.com/swg/js/v1/swg.js"></script>
+<script async src="https://news.google.com/swg/js/v1/swg-gaa.js" onload="InitGaaMetering()"></script>
+
+<script>
+  function InitGaaMetering() {
+    // TODO: Implement GaaMetering.init() after userState and publisher defined
+    // callbacks have been implemented.
+  }
+</script>
+Tipp: Füge attribute subscriptions-control="manual" in das Skript-Tag swg.js ein. Andernfalls wird die „Abonnieren mit Google“-Bibliothek nicht richtig initialisiert.
+Berechtigungsstatus des Nutzers erstellen
+Über das Objekt userState kannst du Google mitteilen, ob du den Nutzer erkennst und ob du ihm Zugriff erteilst.
+
+Google verwendet das Objekt userState, um den nächsten Schritt des Nutzers zu bestimmen, wie in der folgenden Tabelle dargestellt.
+
+Anwendungsfall	Beispiel userState	Ergebnis
+Anonymer Nutzer ohne Zugriff	
+
+{
+  granted: false
+}
+Die API zeigt dem Nutzer das Dialogfeld für die Registrierungsaufforderung an. Hier kann er sich in einem vorhandenen Konto beim Verlag oder Webpublisher anmelden oder sich mit einem Google-Konto für ein neues Konto registrieren.
+
+Du musst Callback-Funktionen für die Anmeldung bestehender Nutzer und die Registrierung neuer Nutzer bereitstellen.
+
+Anonymer Nutzer mit Zugriff über das Messtool des Verlags oder Webpublishers	
+
+{
+  granted: true,
+  grantReason: 'METERING'
+}
+Der Nutzer sieht keine Aufforderungen von Google.
+
+Der Grund für die Berechtigung des Verlags oder Webpublishers wird an Google gesendet.
+
+Registrierter Nutzer ohne Zugriff	
+
+{
+  id: 'user1235',
+  registrationTimestamp: 1602763054,
+  granted: false
+}
+Google prüft anhand der ID und registrationTimestamp, ob erweiterter Zugriff vorhanden ist.
+
+Wenn der erweiterte Zugriff gewährt wird, zeigt die API dem Nutzer die Aufforderung für den erweiterten Zugriff an. Der Nutzer kann dann die Aufforderung schließen, um den Artikel zu lesen, oder direkt über die Aufforderung ein Abo abschließen.
+
+Du musst Callback-Funktionen zur Bearbeitung von erweiterten Zugriffsberechtigungen bereitstellen.
+
+Registrierter Nutzer mit Zugriff über das Messtool des Verlags oder Webpublishers	
+
+{
+  id: 'user1235',
+  registrationTimestamp: 1602763054,
+  granted: true,
+  grantReason: 'METERING'
+}
+Der Nutzer sieht keine Aufforderungen von Google.
+
+Die API sendet die Gründe für die Berechtigung des Verlags oder Webpublishers an Google.
+
+Registrierter Nutzer mit Zugriff über ein Abo des Verlags oder Webpublishers	
+
+{
+  id: 'user1235',
+  registrationTimestamp: 1602763054,
+  subscriptionTimestamp: 1603386128,
+  granted: true,
+  grantReason: 'SUBSCRIBER'
+}
+Der Nutzer sieht keine Aufforderungen von Google.
+
+Die API sendet den Grund für die Berechtigung des Verlags oder Webpublishers an Google.
+
+Wenn du eine serverseitige Paywall betreibst, führst du Berechtigungsprüfungen auf der Serverseite durch. Das führt dazu, dass die Berechtigungen clientseitig verbraucht werden.
+
+Du musst im Schritt Bibliothek für den erweiterten Zugriff initialisieren ein vollständiges userState-Objekt mit dem userState-Parameter angeben.
+
+Prüfe die Berechtigungen vom Verlag oder Webpublisher und die von Google über dein Backend.
+Wenn der Nutzer Zugriff über dich hat, öffne den Artikel wie gewohnt und teile das userState-Objekt auf dem Client mit Google.
+Wenn der Nutzer Zugriff über den erweiterten Zugriff hat, öffne den Artikel und verbrauche die Berechtigung für den erweiterten Zugriff mit der Berechtigung, die von der Showcase Entitlement API zurückgegeben wird.
+Wenn der Nutzer keinen Zugriff über dich oder über den erweiterten Zugriff hat, lade die Paywall und weise Google das userState-Objekt zu.
+Serverseitige Berechtigungsprüfung
+Gehe folgendermaßen vor, um die Google-Berechtigung von deinem Server zu prüfen:
+
+Prüfe, ob der Nutzer von Showcase stammt. Prüfe dazu, ob die Parameter für den Google-Artikelzugriff (GAA) und die Referrer-URL vorhanden sind.
+Ermittle, ob der aktuelle Nutzer Zugriff über standardmäßige Prüfungen des Verlags oder Webpublishers hat.
+Wenn der Nutzer Zugriff über den Verlag oder Webpublisher hat, leite ihn mit den ursprünglichen GAA-Parametern und dem Objekt userState zur Artikel-URL zurück. Mit dem Base64-Beispielcode wird das userState-Objekt in einen String codiert und es wird der URL-Parameter userState angehängt.
+Wenn der Nutzer registriert ist, rufe die Showcase Entitlement API mit encodedParams und publicationId auf. Beispiel:
+
+https://news.google.com/swg/_/api/v1/publication/publicationId/entitlements?encodedParams=encodedParams
+Wenn der Nutzer Zugriff über Google hat (showcaseEntitlementResponse.signedEntitlements ist nicht leer), leite ihn zur Artikel-URL weiter. Achte darauf, dass dein clientseitiger Code Zugriff auf das JSON-Webtoken (JWT) hat, das von der API zurückgegeben wird. Im Beispiel wird der „googleEntitlement“-URL-Parameter showcaseEntitlementResponse.signedEntitlements als JWT angehängt.
+Wenn der Nutzer keinen Zugriff über den Verlag oder Webpublisher und auch nicht über Google hat, rufe die Paywall mit den ursprünglichen GAA-Parametern und dem URL-Parameter aus Schritt 3 auf.
+Pseudocode
+
+// Extract information from the request
+referrer = request.getReferrer(); // e.g. https://news.google.com
+url = request.getUrl(); // e.g. https://examplenews.com/article?gaa_at=la&gaa_ts...
+parameters = request.getParams(); // e.g. { gaa_at: "la", gaa_ts: ... }
+
+// Example regex to check if the hostname of the referrer is a google.com origin
+// e.g. https://news.google.com     -> news.google.com -> PASS
+//      https://other.site.com/news -> other.site.com  -> FAIL
+GOOGLE_DOMAIN_RE = /(^|\.)google\.(com?|[a-z]{2}|com?\.[a-z]{2}|cat)$/g;
+
+// This example works by adding parameters onto the article URL so that they can be
+// read and used by the client.
+// This could be done by some other means (e.g. cookie or data layer) if
+// preferable.
+
+// 1) Check if the user came from showcase
+isGaa = (
+parameters.["gaa_at"]
+&& parameters["gaa_ts"]
+&& parameters["gaa_n"]
+&& parameters["gaa_sig"]
+&& GOOGLE_DOMAIN_RE.test(getHostname(referrer))
+);
+
+// 2) Get the current, logged in user
+user = getCurrentUser();
+// Determine if the user has access via standard publisher checks
+publisherEntitlement = hasAccess(user, url);
+
+if (!isGaa) {
+// Normal publisher logic to unlock the article or show the paywall.
+} else {
+// 3) Pass the userState back to the client via URL parameters.
+// This could be done by some other means (e.g. cookie or data layer) if preferable.
+url.addParameter("userState", base64encode(publisherEntitlement));
+
+if (!publisherEntitlement.granted && user.isRegistered()) {
+  // Assume no access from Google initially.
+  showcaseEntitlement = false;
+  // 4) Make a call to the Showcase entitlements API
+  // Get the canonical URL of the current article.
+  canonicalUrl = getCanonicalUrl(url);
+  // e.g. https://examplenews.com/article?gaa_at=la&gaa_ts=...
+  //      -> https://examplenews.com/article
+  hashedUrl = sha512Hash(canonicalUrl);
+  // e.g. https://examplenews.com/article ->
+  // 6addbbd6eb3316ac904e4e8388f9ff33866c2f232e757a34c00c1f0a8f94733816bace3
+  // fdf5267c7507ffa3202b76e9f972226b4bd573348f992c8d87401072f
+
+  // Make sure to replace "examplenews.com" with your publication ID.
+  publicationId = "examplenews.com"
+  jsonParams = {
+    'metering': {
+      'clientTypes': [1], // This is always [1]
+      'owner': publicationId,
+      'resource': {
+        'hashedCanonicalUrl': hashedUrl // Pass your article's hashed canonical URL
+       },
+       'state': {
+         'id': user.getHashedId(), // Pass your reader's hashed ID
+         'attributes': [
+           {
+             'name': 'standard_registered_user',
+             // Pass registration timestamp in seconds
+             'timestamp': user.getRegistrationTimestamp().toSeconds()
+           }
+         ],
+       }
+     }
+   };
+
+   // Base64 encode the request and make sure it is URL-safe
+   encodedParams = base64encode(jsonParams.toString())
+     .replace(/\+/g,"-")
+     .replace(/\//g,"_")
+     .replace(/\=/g,"");
+   // e.g. { metering: { ... } } ->
+   // eyJtZXRlcmluZyI6eyJjbGllbnRUeXBlcyI6WzFdLCJvd25lciI6ImV4YW1wbGVuZXdzLmNvbSIsInJl
+   // c291cmNlIjp7Imhhc2hlZENhbm9uaWNhbFVybCI6IjZhZGRiYmQ2ZWIzMzE2YWM5MDRlNGU4Mzg4Zjlm
+   // ZjMzODY2YzJmMjMyZTc1N2EzNGMwMGMxZjBhOGY5NDczMzgxNmJhY2UzZmRmNTI2N2M3NTA3ZmZhMzIw
+   // MmI3NmU5Zjk3MjIyNmI0YmQ1NzMzNDhmOTkyYzhkODc0MDEwNzJmIn0sInN0YXRlIjp7ImlkIjoiVVNF
+   // UjEyMzQiLCJhdHRyaWJ1dGVzIjpbeyJuYW1lIjoic3RhbmRhcmRfcmVnaXN0ZXJlZF91c2VyIiwidGlt
+   // ZXN0YW1wIjoxMjM0fV19fX0
+
+   // Check with Google for extended access
+   showcaseEntitlementRequest = `https://news.google.com/swg/_/api/v1/publication/${publicationId}/entitlements?encodedParams=${encodedParams}`;
+
+   // Store the response from the Showcase entitlement API.
+   showcaseEntitlementResponse = HTTP.get(showcaseEntitlementRequest).toJson();
+
+   // 5) If "signedEntitlements" are present in the response from Google, it means
+   // that Google is granting Extended Access.
+   showcaseEntitlement = showcaseEntitlementResponse.signedEntitlements;
+   if (showcaseEntitlement) {
+     url.addParameter("showcaseEntitlement", showcaseEntitlement);
+   }
+ } else {
+   // 6) If there is no access from the publisher and no Extended Access from Google,
+   // open the normal paywall with the original gaa and userState parameters are appended.
+   url.setPath("/paywall");
+ }
+}
+
+// Redirect the user to the original URL with the new parameters attached
+// e.g. https://examplenews.com/article?userState=eyasdadw12312&gaa_at=la&gaa_ts=...
+redirect(url);
+Clientseitiger Verbrauch von Berechtigungen
+Nachdem du die serverseitigen Berechtigungsprüfungen durchgeführt hast, stehen dir alle Informationen über den Nutzer zur Verfügung, bevor die Artikelseite geladen wird. Anschließend musst du das vollständige userState-Objekt mit dem Parameter userState angeben und den Parameter paywallType auf 'SERVER_SIDE' setzen, während du den Schritt Bibliothek für den erweiterten Zugriff initialisieren ausführst.
+
+Achtung: Ein Publikationsteil von productID in deinem Markup für strukturierte Daten sollte mit der publicationId übereinstimmen, die du an die Showcase Entitlements API übergibst.
+Wenn du die Showcase Entitlements API beispielsweise mit der publicationId „example.com“ aufrufst, muss die entsprechende productID in deinem Markup für strukturierte Daten entweder „example.com: showcase“ oder „example.com:anything“ sein.
+
+Die ID darf nicht „example-staging.com:showcase“ lauten, da GAA in diesem Fall nicht die Aufforderung für den erweiterten Zugriff anzeigt und die Berechtigung nicht verbraucht wird.
+
+Wenn du paywallType beim Ausführen einer serverseitigen Berechtigungsprüfung nicht auf 'SERVER_SIDE' setzt, wiederholt GAA die Berechtigungsprüfung möglicherweise auf Clientseite. Bleibt das userState-Objekt in beiden Berechtigungsprüfungen dasselbe, wird auch die gleiche Antwort ausgegeben. Solltest du jedoch aus Versehen ein anderes userState-Objekt angeben, kann es auf Clientseite zu einem unerwarteten Ereignis kommen.
+
+Beispielcode, wenn ein registrierter Nutzer Zugriff über Google hat
+
+const urlParams = new URLSearchParams(location.search);
+const showcaseEntitlement = urlParams.get("showcaseEntitlement");
+const userState = decodeB64AndParseJSON(urlParams.get("userState"));
+
+GaaMetering.init({
+  userState: userState,
+  showcaseEntitlement: showcaseEntitlement,
+  paywallType: 'SERVER_SIDE',
+  googleApiClientId: GOOGLE_API_CLIENT_ID,
+  allowedReferrers: allowedReferrers,
+  showPaywall: showPaywall,
+  handleLogin: handleLogin,
+  registerUserPromise: registerUserPromise,
+  handleLoginPromise: handleLoginPromise
+});
+Hier ist das entsprechende userState-Objekt, wenn ein registrierter Nutzer keinen Zugriff über den Verlag oder Webpublisher hat:
+
+
+{
+  id: 'user1235',
+  registrationTimestamp: 1602763054,
+  granted: false
+}
+
+Beispielcode, wenn ein registrierter Nutzer Zugriff über den Verlag oder Webpublisher hat
+
+const urlParams = new URLSearchParams(location.search);
+const userState = decodeB64AndParseJSON(urlParams.get("userState"));
+  
+GaaMetering.init({
+  userState: userState,
+  paywallType: 'SERVER_SIDE',
+  googleApiClientId: GOOGLE_API_CLIENT_ID,
+  allowedReferrers: allowedReferrers,
+  showPaywall: showPaywall,
+  handleLogin: handleLogin,
+  registerUserPromise: registerUserPromise,
+  handleLoginPromise: handleLoginPromise
+});
+Hier ist das entsprechende userState-Objekt, wenn ein registrierter Nutzer Zugriff über den Verlag oder Webpublisher hat:
+
+
+  {
+    id: 'user1235',
+    registrationTimestamp: 1602763054,
+    granted: true,
+    grantReason: 'METERING'
+  }  
+Beispielcode, wenn ein registrierter Nutzer weder über den Verlag oder Webpublisher noch über Google Zugriff hat
+
+const urlParams = new URLSearchParams(location.search);
+const userState = decodeB64AndParseJSON(urlParams.get("userState"));
+
+GaaMetering.init({
+  userState: userState,
+  paywallType: 'SERVER_SIDE',
+  googleApiClientId: GOOGLE_API_CLIENT_ID,
+  allowedReferrers: allowedReferrers,
+  showPaywall: showPaywall,
+  handleLogin: handleLogin,
+  registerUserPromise: registerUserPromise,
+  handleLoginPromise: handleLoginPromise
+  });  
+Hier ist das entsprechende userState-Objekt, wenn ein registrierter Nutzer weder über den Verlag oder Webpublisher noch über Google Zugriff hat:
+
+
+{
+  id: 'user1235',
+  registrationTimestamp: 1602763054,
+  granted: false,
+}  
+Beispielcode, wenn ein anonymer Nutzer keinen Zugriff über den Verlag oder Webpublisher hat
+
+const urlParams = new URLSearchParams(location.search);
+const userState = decodeB64AndParseJSON(urlParams.get("userState"));
+  
+GaaMetering.init({
+  userState: userState,
+  paywallType: 'SERVER_SIDE',
+  googleApiClientId: GOOGLE_API_CLIENT_ID,
+  allowedReferrers: allowedReferrers,
+  showPaywall: showPaywall,
+  unlockArticle: unlockArticle,
+  handleLogin: handleLogin,
+  registerUserPromise: registerUserPromise,
+  handleLoginPromise: handleLoginPromise
+});
+Hier ist das entsprechende userState-Objekt, wenn ein anonymer Nutzer keinen Zugriff über den Verlag oder Webpublisher hat:
+
+
+{
+  granted: false
+}
+Registrierungsaufforderung für den erweiterten Zugriff
+Ein Teil des erweiterten Zugriffs ist eine Aufforderung zur Registrierung, die es neuen Nutzern ermöglicht, sich beim Verlag oder Webpublisher zu registrieren. Vorhandene Nutzer werden zur Anmeldung aufgefordert. Der Ablauf ist so einfach wie möglich gestaltet und wird Nutzern, die sich bereits beim Verlag oder Webpublisher angemeldet haben, nicht angezeigt.
+
+Neue Nutzer stimmen zu, sich mit ihrem Google-Konto beim Verlag oder Webpublisher zu registrieren. Google sendet dann dem Verlag oder Webpublisher ein Google-ID-Token, das den Namen und die E◄Mail-Adresse des Nutzers enthält. Dies ist das gleiche Token, das ein Verlag oder Webpublisher erhält, wenn er Google Log-in implementiert. Mit diesen Identitätsinformationen muss der Verlag oder Webpublisher ein Konto für den Nutzer in seinem System erstellen oder den Nutzer mit einem vorhandenen Konto verknüpfen.
+
+Verlage oder Webpublisher dürfen im Rahmen der Registrierung keine zusätzlichen Informationen vom Nutzer anfordern. Wende dich an deinen technischen Google-Ansprechpartner, falls du zusätzliche Informationen für Marketingzwecke oder Ähnliches benötigst. Ein zentrales Produktprinzip besteht darin, dass zusätzliche Informationen angefordert werden sollten, ohne das Versprechen zum erweiterten Zugriff von Google zu blockieren.
+
+Google zeigt die Registrierungsaufforderung unter folgenden Bedingungen an:
+
+Die Artikelseite wird aus einem gültigen Bereich von Google News Showcase geladen und enthält die GAA-Parameter.
+Der Artikel ist nicht als kostenlos gekennzeichnet:
+
+"isAccessibleForFree": false im Markup für strukturierte Daten.
+
+Der Nutzer ist anonym:
+
+userState.id</code> und userState.registrationTimestamp fehlen oder sind leer.
+
+Der Nutzer hat keinen Zugriff auf das Messtool eines Verlags oder Webpublishers für anonyme Nutzer:
+
+userState.granted ist false.
+
+Hinweis: Auf unserer Demoseite findest du ein Live-Beispiel dafür, wie die Registrierungsaufforderung für den erweiterten Zugriff aussieht.
+Aufforderung zur Registrierung bei Google
+
+Abbildung 1: Registrierungsaufforderung für den erweiterten Zugriff
+
+In der folgenden Tabelle werden die einzelnen Komponenten der Aufforderung, ihre Darstellung und ihr Verhalten sowie die Herkunft ihrer Komponenten beschrieben.
+
+Aufforderungskomponenten
+Schaltfläche „Weiter mit Google“	
+Diese wird in die googleApiClientId eingefügt, die im Schritt Bibliothek für den erweiterten Zugriff initialisieren angegeben wurde.
+
+Wenn Nutzer auf diese Schaltfläche klicken, wird der Vorgang ausgelöst, der im Abschnitt Registrierung neuer Nutzer beschrieben wird.
+
+Name des Verlags oder Webpublishers	Die API verwendet die publisher.name, die sie im Schritt Markup für strukturierte Daten hinzufügen erhält.
+Schaltfläche „Bereits registriert? Anmelden.“	Diese Schaltfläche löst einen Callback aus, mit dem sich der Nutzer bei einem aktuellen Konto anmelden kann. Die Vorgehensweise wird im Abschnitt Anmeldung bestehender Nutzer beschrieben.
+Registrierung neuer Nutzer
+Die Registrierungsaufforderung für den erweiterten Zugriff in Abbildung 1 zeigt neuen Nutzern die Schaltfläche Weiter mit Google, damit sie sich mit ihrem Google-Konto registrieren können. Hat der Nutzer auf Weiter mit Google geklickt, leitet Google ihn zum Bildschirm in Abbildung 2 weiter, wo er das Google-Konto für die Registrierung beim Verlag oder Webpublisher auswählen kann.
+
+Auswahlbildschirm für das Google-Konto
+
+Abbildung 2: Auswahlbildschirm für das Google-Konto
+
+In Abbildung 2 werden Nutzer dazu aufgefordert…
+
+der Weitergabe ihrer Daten an dich zuzustimmen,
+der Datenschutzerklärung und den Nutzungsbedingungen zuzustimmen, die du im Abschnitt „OAuth-Zustimmungsbildschirm“ der Google Cloud Console konfiguriert hast.
+Weitere Informationen findest du im Abschnitt Nutzereinwilligung für OAuth 2.0 einrichten.
+
+Nachdem der Nutzer die Kontoauswahl abgeschlossen hat, leitet Google den Nutzer zurück zu deinem Artikel und löst das registerUserPromise aus, das du im Schritt Bibliothek für den erweiterten Zugriff initialisieren auswählst.
+
+Das registerUserPromise muss Folgendes tun:
+
+GaaMetering.getGaaUserPromise() aufrufen, um ein Promise zu erhalten, das die Details des neu registrierten Google-Nutzers zurückgibt. Diese Details werden als Anmeldedatenobjekt angezeigt.
+Sende dieses Anmeldedatenobjekt an deinen Registrierungsendpunkt, um:
+das JSON-Webtoken (JWT) zu überprüfen,
+einen neuen Nutzer in deinem System zu erstellen oder ihn mit einem aktuellen Nutzer zu verbinden,
+entweder auf dem selben Endpunkt oder über einen separaten Aufruf / eine separate Weiterleitung:
+eine serverseitige Berechtigungsprüfung durch Aufruf der Showcase Entitlements API durchzuführen. In diesem Aufruf gibst du das userState-Objekt in einem entsprechenden Format in encodedParams an.
+eine Weiterleitung zu einer Artikelseite durchzuführen und showcaseEntitlement und userState an GaaMetering.init zu übergeben, damit du die Berechtigung auf Clientseite verbrauchen kannst.
+Hinweis: Bei serverseitigen Paywall-Implementierungen wird registerUserPromise nicht in ein clientseitiges userState-Objekt aufgelöst, da die Seite nach einer Registrierung aktualisiert wird. Stattdessen stellst du auf der Serverseite ein userState-Objekt über die Showcase Entitlements API bereit.
+Tipp: Wenn du die Seite nach einer erfolgreichen Registrierung aktualisierst, verlierst du möglicherweise die ursprüngliche referrer. Füge deine Artikelseiten der Liste allowedReferrers hinzu, wie im Abschnitt Bibliothek für den erweiterten Zugriff initialisieren beschrieben.
+Beispielcode
+
+registerUserPromise = new Promise((resolve) => {
+  // Get the information for the user who has just registered.
+  GaaMetering.getGaaUserPromise().then((gaaUser) => {
+    // Send that information to your Registration endpoint to register the user and
+    // return the userState for the newly registered user.
+    fetch('https://examplenews.com/user/register',
+      {
+        method: 'POST',
+        headers: {
+          'Content-type': 'application/json'
+        },
+        body: JSON.stringify(gaaUser)
+      })
+      .then(response => response.json())
+      .then(userState => { resolve(userState); });
+  });
+});
+Anmeldung bestehender Nutzer
+Die Registrierungsaufforderung für den erweiterten Zugriff in Abbildung 1 zeigt eine Bereits registriert? Anmelden-Option für Nutzer an, die bereits ein Konto bei dir haben. Wenn der Nutzer auf Bereits registriert? Anmelden klickt, löst Google das handleLoginPromise aus, das du im Schritt Bibliothek für den erweiterten Zugriff initialisieren angegeben hast.
+
+Das handleLoginPromise muss Folgendes tun:
+
+Die Standardanmeldeseite öffnen und dem Nutzer erlauben, sich mit seinem bestehenden Konto anzumelden. Dazu hast du mehrere Möglichkeiten:
+
+Rufe GaaMetering.getLoginPromise() auf, um ein Versprechen zu erhalten, das aufgelöst wird, wenn der Nutzer auf Bereits registriert? Anmelden klickt.
+Öffne ein neues Fenster als Pop-up oder neuen Tab.
+Präsentiere deine Anmeldung mit einem modalen In-Page-Format.
+
+Tipp: Mit der Funktion GaaMeteringRegwall.remove() kannst du die Registrierungsaufforderung ausblenden. Wenn der Nutzer deinen Anmeldebildschirm schließt, bevor er sich anmeldet, musst du die Bibliothek für den erweiterten Zugriff neu initialisieren.
+Leite den Nutzer auf die Anmeldeseite des Hauptfensters weiter.
+
+Tipp: Mit dieser Methode können die ursprünglichen referrer- und URL-Parameter verloren gehen. Behalte die GAA-Parameter bei, wenn du den Nutzer zurück zur Artikelseite leitest. Außerdem solltest du deine Artikel- und/oder Anmeldeseiten der Liste **allowedReferrers** hinzufügen, wie im Schritt Bibliothek für den erweiterten Zugriff initialisieren beschrieben.
+Erstelle ein userState-Objekt für den angemeldeten Nutzer.
+
+Löse das Versprechen mit dem neuen userState-Objekt auf.
+
+Beispielcode mit fensterübergreifender Nachrichtenfunktion
+
+handleLoginPromise = new Promise((resolve) => {
+  GaaMetering.getLoginPromise().then(() => {
+    // Open a login window for existing users to login.
+    const loginWindow = window.open('https://examplenews.com/user/login');
+
+    // Wait for the login window to send a message with userState for the user.
+    window.addEventListener('message', function(message) {
+      if (loginWindow == message.source) {
+        resolve(message.data);
+      }
+    } , false);
+  });
+});
+Beispielcode mit Weiterleitungsfunktion
+
+const allowedReferrers = ['https://login.examplenews.com'];
+handleLoginPromise = new Promise(() => {
+  GaaMetering.getLoginPromise().then(() => {
+    // Capture full URL, including URL parameters, to redirect the user to after login
+    const redirectUri = encodeURIComponent(window.location.href);
+    // Redirect to a login page for existing users to login.
+    window.location = `https://login.examplenews.com?redirect_uri=${redirectUri}`;
+  });
+});
+Umgang mit erweiterten Zugriffsberechtigungen
+Falls der Nutzer keinen Zugriff über den Verlag oder Webpublisher hat, d. h. wenn userState.granted auf false gesetzt ist, prüft Google, ob der Nutzer erweiterten Zugriff von Google erhalten soll, basierend auf der id und dem registrationTimestamp im userState-Objekt.
+
+Wenn Google den erweiterten Zugriff gewähren möchte, wird dem Nutzer die Aufforderung für den erweiterten Zugriff angezeigt (Abbildung 3). Die API löst dann im Schritt Bibliothek für den erweiterten Zugriff initialisieren die Funktion unlockArticle aus.
+
+Aufforderung für den erweiterten Zugriff
+
+Abbildung 3: Aufforderung für den erweiterten Zugriff
+
+In der folgenden Tabelle werden die einzelnen Komponenten der Eingabeaufforderung, ihre Darstellung und ihr Verhalten sowie die Herkunft der Komponenten der API beschrieben.
+
+Komponenten für die Aufforderung für den erweiterten Zugriff
+Logo des Verlags oder Webpublishers	Die API verwendet das quadratische Logo, das du im Google News Publisher Center hochlädst.
+Name der Publikation	Die API verwendet den Namen der Publikation aus dem Google News Publisher Center.
+Schaltfläche „Abonnieren“	Wenn Nutzer auf diese Schaltfläche klicken, wird die Funktion showPaywall aus dem Schritt Bibliothek des erweiterten Zugriffs initialisieren ausgelöst.
+Das Anzeigen dieser Aufforderung gilt im Google-System als Lesevorgang. Deshalb kann der Nutzer an dieser Stelle eine der folgenden Aktionen ausführen:
+
+Er kann die Abonnieren-Funktionalität der Aufforderung nutzen und nahtlos auf deine Standard-Paywall zugreifen, die du bei allen Transaktionen verwendest.
+Er kann die Aufforderung schließen und den Artikel weiterlesen.
+Bibliothek für den erweiterten Zugriff initialisieren
+Nachdem du die vorangegangenen Funktionen implementiert hast, kannst du die Bibliothek für den erweiterten Zugriff initialisieren und die Funktionen als Callbacks bereitstellen.
+
+In der folgenden Tabelle werden die Parameter beschrieben, die für den GaaMetering.init-Aufruf erforderlich sind.
+
+Parameternamen
+googleApiClientId	
+Typ: string
+
+Deine Google API-Client-ID.
+
+Eine Client-ID sieht so aus:
+
+1234567890-abc123def456.apps.googleusercontent.com
+userState	
+Typ: object
+
+Das userState-Objekt für den aktuellen Nutzer.
+
+Weitere Informationen findest du in diesem Artikel zum Objekt userState.
+
+handleLoginPromise	
+Typ: promise
+
+Ermöglicht dem Nutzer, sich in einem bestehenden Verlags- oder Webpublisher-Konto anzumelden, und muss mit einem aktualisierten userState-Objekt für den neu angemeldeten Nutzer aufgelöst werden.
+
+Weitere Informationen findest du unter Anmeldung bestehender Nutzer.
+
+registerUserPromise	
+Typ: promise
+
+Übernimmt das JSON-Webtoken (JWT) für die Registrierung, das von „Über Google anmelden“ zurückgegeben wird, und gibt dann ein aktuelles userState-Objekt für den neu registrierten Nutzer zurück.
+
+Weitere Informationen findest du unter Registrierung neuer Nutzer.
+
+publisherEntitlementPromise (erforderlich bei Verwendung einer clientseitigen Paywall)	
+Typ: promise
+
+Wird mit dem userState des Nutzers aufgelöst. Dieses Promise ist keine Voraussetzung für eine serverseitige Paywall.
+
+Weitere Informationen findest du unter Berechtigungsstatus des Nutzers erstellen.
+unlockArticle (erforderlich bei Verwendung einer clientseitigen Paywall)	
+Typ: function
+
+Callback, der den aktuellen Artikel entsperren muss, den die API aufruft, wenn Google dem Nutzer erweiterten Zugriff gewährt. Zur Validierung stellt GAA ein Berechtigungsantwort-Objekt bereit, das Messdaten von Google als Parameter für diesen Callback enthält.
+
+Weitere Informationen findest du unter Umgang mit erweiterten Zugriffsberechtigungen.
+
+showPaywall	
+Typ: function
+
+Callback, der dem Nutzer die Standard-Paywall des Verlags oder Webpublishers anzeigt. Die API verwendet diesen Callback unter den folgenden Bedingungen:
+  1. Der Nutzer erhält keinen erweiterten Zugriff.
+
+  2. Der Nutzer klickt in der Aufforderung für den erweiterten Zugriff auf „Abonnieren“.
+
+Mit diesem Callback können unterschiedliche Szenarien ausgelöst werden, je nachdem, an welchem Punkt sich der Nutzer befindet. Beispiel: Paywall auf Artikelebene anzeigen in Szenario 1 oder Kaufvorgang initialisieren in Szenario 2.
+
+Weitere Informationen findest du unter Umgang mit erweiterten Zugriffsberechtigungen.
+
+paywallType (optional)	Typ: enum
+Gibt an, welche Art von Paywall auf deiner Website genutzt wird. Der Standardwert dieses Parameters ist 'CLIENT_SIDE'.
+
+Mögliche Werte
+'CLIENT_SIDE'
+
+Verwende 'CLIENT_SIDE', wenn du eine clientseitige Paywall nutzt. GAA prüft und verbraucht die Berechtigungen auf Clientseite. Weitere Informationen findest du unter Implementierung einer clientseitigen Paywall.
+
+'SERVER_SIDE'
+Verwende „SERVER_SIDE“, wenn du eine serverseitige Paywall nutzt. Du musst Berechtigungen serverseitig prüfen und clientseitig verbrauchen. Weitere Informationen findest du unter Implementierung einer serverseitigen Paywall.
+
+showcaseEntitlement (erforderlich bei Verwendung einer serverseitigen Paywall)	
+Typ: string
+
+Ein JWT, das eine Berechtigung darstellt, die Google dem Nutzer für eine bestimmte Ressource bereitstellt. Du musst diesen Parameter bereitstellen, wenn die serverseitig aufgerufene Showcase Entitlements API ein signedEntitlements-Objekt als JWT zurückgibt.
+
+Die Bereitstellung dieses Parameters ist nicht erforderlich, wenn die Showcase Entitlements API kein signedEntitlements-Objekt zurückgibt.
+
+handleSwGEntitlement (erforderlich bei Verwendung von „Abonnieren mit Google“)	
+Typ: function
+
+Wenn du „Abonnieren mit Google“ verwendest, musst du diesen Callback implementieren. Dieser Callback wird ausgelöst, wenn der Nutzer ein „Abonnieren mit Google“-Abonnent ist. In diesem Fall empfängt er den „Abonnieren mit Google“-Parameter entitlementResponse. Weitere Informationen findest du unter Berechtigungen mit swg.js prüfen und in der Anleitung „Abonnieren mit Google“ und den erweiterten Zugriff einbinden.
+
+allowedReferrers	
+Typ: Array
+
+Array mit allen zulässigen Hosts, die Nutzer auf deine Artikelseiten verweisen können. Die API verwendet dieses Attribut, wenn du Nutzer weiterleitest oder die Seite während der Registrierung neuer Nutzer oder der Anmeldung bestehender Nutzer aktualisierst.
+
+Ein allowedReferrers-Array sieht so aus:
+
+['www.examplenews.com', 'login.examplenews.com']
+
+shouldInitializeSwG (optional)	
+Typ: boolean
+
+Standardmäßig wird die swg.js-Bibliothek von GAA initialisiert, wenn du GaaMetering.init aufrufst. Setze diesen Parameter auf false, um die Initialisierung der swg.js-Bibliothek durch GAA zu umgehen.
+
+Du musst die Initialisierung von swg.js umgehen, wenn sie vor dem GaaMeterint.init-Aufruf von einem anderen Methodenaufruf an die swg.js-Bibliothek initialisiert wird. Diese Methodenaufrufe enthalten folgende Elemente:
+
+registerEventListener
+getEntitlements
+Möglicherweise brauchst du diese Option, wenn deine „Abonnieren mit Google“-Implementierung von einem Drittanbietersystem verwaltet wird, das keine Einbindung des erweiterten Zugriffs bietet.
+
+Beispielcode
+Das folgende Beispiel zeigt, wie die Bibliothek für den erweiterten Zugriff initialisiert wird.
+
+
+GaaMetering.init({
+    googleApiClientId: '123123123.apps.googleusercontent.com',
+    userState: userState,
+    allowedReferrers: ['www.examplenews.com', 'login.examplenews.com'],
+    handleLoginPromise: handleLoginPromise,
+    registerUserPromise: registerUserPromise,
+    publisherEntitlementPromise: publisherEntitlementPromise,
+    unlockArticle: unlockArticle,
+    showPaywall: showPaywall,
+    handleSwGEntitlement: handleSwGEntitlement
+});
+Mit dem folgenden Beispielcode kannst du mit der Implementierung des erweiterten Zugriffs beginnen.
+
+Hinweis: Um den Beispielcode zu nutzen, musst du Methoden implementieren oder den in den TODO-Kommentaren hervorgehobenen Attributen passende Werte zuweisen. Sollte der Beispielcode nicht wie erwartet funktionieren, findest du weitere Informationen in unserer Anleitung zur Fehlerbehebung.
+
+<!--TODO: Assign appropriate values for publisher name, productId, isAccessibleForFree, etc.-->
+<script type="application/ld+json">
+  {
+    "@context": "http://schema.org",
+    "@type": "NewsArticle",
+    "isAccessibleForFree": false,
+    "isPartOf": {
+      "@type": ["CreativeWork", "Product"],
+      "name" : "The Example Times",
+      "productID": "example.com:showcase"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "The Example Times"
+    }
+  }
+</script>
+
+<script async src="https://accounts.google.com/gsi/client" defer></script>
+<script async subscriptions-control="manual" src="https://news.google.com/swg/js/v1/swg.js"></script>
+<script async src="https://news.google.com/swg/js/v1/swg-gaa.js" onload="InitGaaMetering()"></script>
+
+<script>
+  function InitGaaMetering() {
+    /*
+     * TODO: Generate a userState object for the current user.
+     * Example userState objects:
+     * - Anonymous user with no access
+     *   { granted: false }
+     * - Anonymous user with publisher metering access
+     *   { granted: true, grantReason: 'METERING' }
+     * - Registered user with no publisher access
+     *   {
+     *     id: 'user1235',
+     *     registrationTimestamp: 1602763054,
+     *     granted: false
+     *   }
+     * - Registered user with publisher metering access
+     *   {
+     *     id: 'user1235',
+     *     registrationTimestamp: 1602763054,
+     *     granted: true,
+     *     grantReason: 'METERING'
+     *   }
+     * - Registered user with publisher subscription access
+     *   {
+     *     id: 'user1235',
+     *     registrationTimestamp: 1602763054,
+     *     subscriptionTimestamp: 1603386128,
+     *     granted: true,
+     *     grantReason: 'SUBSCRIPTION'
+     *   }
+     *
+     * Example userState below is for an anonymous user with no access.
+     * Extended Access Registration Intervention will be displayed.
+     */
+    const userState = { granted: false };
+    
+    const registerUserPromise = new Promise((resolve) => {
+      GaaMetering.getGaaUserPromise().then((gaaUser) => {
+        // TODO: Handle registration for the gaaUser and resolve the userState.
+        // Example userState below is for a registered user with publisher metering access.
+        const registeredUserState = {
+          id: 'user1235',
+          registrationTimestamp: 1602763054,
+          granted: true,
+          grantReason: 'METERING'
+        };
+        resolve(registeredUserState);
+      });
+    });
+   
+    const publisherEntitlementPromise = new Promise((resolve) => {
+      // TODO: Fetch userState from the server and resolve it.
+      resolve(userState);
+    });
+    
+    const handleLoginPromise = new Promise((resolve) => {
+      GaaMetering.getLoginPromise().then(() => {
+        // TODO: Handle login for the existing user and resolve the userState.
+        // Example userState below is for a registered user with no publisher access.
+        const loggedInUserState = {
+          id: 'user1235',
+          registrationTimestamp: 1602763054,
+          granted: false,
+        };
+        resolve(loggedInUserState);
+      });
+    });
+  
+    function handleSwGEntitlement(entitlement) {
+      // TODO: Handle SwG entitlement if you implement SwG.
+    }
+    
+    function handleShowPaywall() {
+      // TODO: Implement showPaywall method.
+      console.log('Show paywall');
+    }
+    
+    function handleUnlockArticle() {
+      // TODO: Implement unlockArticle method.
+      console.log('Unlock article');
+    }
+  
+    GaaMetering.init({
+      // TODO: Add Google API Client ID.
+      googleApiClientId: '123123123.apps.googleusercontent.com',
+      userState: userState,
+      // TODO: Add allowed referrers.
+      allowedReferrers: ['examplenews.com', 'login.examplenews.com'],
+      handleLoginPromise: handleLoginPromise,
+      registerUserPromise: registerUserPromise,
+      publisherEntitlementPromise: publisherEntitlementPromise,
+      unlockArticle: handleUnlockArticle,
+      showPaywall: handleShowPaywall,
+      // TODO: Remove handleSwGEntitlement if not implementing SwG.
+      handleSwGEntitlement: handleSwGEntitlement
+    })
+  }
+</script>
