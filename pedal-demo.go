@@ -352,8 +352,22 @@ func (a *PianoAPI) swgStatus(statusReq SWGStatusRequest) error {
 	// Get pianoID and create token
 	pianoID, err := a.findUserByEmail(statusReq.Email)
 	if err != nil {
-		a.logger.Error("User not found: %v", err)
-		return fmt.Errorf("user not found: %v", err)
+		a.logger.Info("Creating new Piano user for email: %s", statusReq.Email)
+		// Generate random password
+		password, err := generateRandomPassword(16)
+		if err != nil {
+			a.logger.Error("Failed to generate password: %v", err)
+			return fmt.Errorf("failed to generate password: %w", err)
+		}
+		// User doesn't exist, create new user
+		pianoID, err = a.createPianoUser(statusReq.Email, password)
+		if err != nil {
+			a.logger.Error("Failed to create Piano user: %v", err)
+			return fmt.Errorf("failed to create Piano user: %w", err)
+		}
+		a.logger.Info("Created new Piano user with ID: %s", pianoID)
+	} else {
+		a.logger.Info("Found existing Piano user with ID: %s", pianoID)
 	}
 
 	userToken := a.createPianotoken(pianoID)
@@ -365,6 +379,7 @@ func (a *PianoAPI) swgStatus(statusReq SWGStatusRequest) error {
 	// Create hashed IDs from email
 	hasher := md5.New()
 	hasher.Write([]byte(statusReq.Email))
+	hasher.Write([]byte(pianoID))
 	emailHash := hex.EncodeToString(hasher.Sum(nil))
 
 	unit := "month"
