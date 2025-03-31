@@ -10,6 +10,31 @@ A Go application that handles user creation and subscription management between 
 | 🔄 Subscription Events | Handles subscription start/cancel/renew events via webhook |
 | ⚙️ Environment Config | Flexible environment-based configuration |
 
+## 📑 Table of Contents
+
+- [Features](#-features)
+- [Quick Start](#-quick-start)
+- [Prerequisites](#-prerequisites)
+- [Configuration](#-configuration)
+- [Tutorial: Setting up Google Cloud Console](#-tutorial-setting-up-google-cloud-console)
+  - [Create a Google Cloud Project](#1-create-a-google-cloud-project)
+  - [Enable Required APIs](#2-enable-required-apis)
+  - [Configure OAuth 2.0](#3-configure-oauth-20)
+  - [Set up Service Account](#4-set-up-service-account)
+  - [Configure Developer Access](#5-configure-developer-access)
+  - [Set up Pub/Sub Notifications](#6-set-up-pubsub-notifications)
+  - [Configure Publisher Center](#7-configure-publisher-center)
+  - [Update Environment Variables](#8-update-environment-variables)
+  - [Test the Integration](#9-test-the-integration)
+- [Docker Setup](#-docker-setup)
+- [API Endpoints](#-api-endpoints)
+  - [POST /swg/create-user](#post-swgcreate-user)
+  - [POST /swg/webhook](#post-swgwebhook)
+- [Dependencies](#-dependencies)
+- [License](#-license)
+
+
+
 ## 🚀 Quick Start
 
 1. Clone the repository:
@@ -38,50 +63,6 @@ A Go application that handles user creation and subscription management between 
    ```
    https://localhost:8080/demo
    ```
-
-## 🐳 Docker Setup
-
-The project includes Docker support for both development and production environments.
-
-### Development Mode
-
-1. Start the development environment:
-   ```bash
-   docker-compose up
-   ```
-
-   This will:
-   - Build the development container
-   - Generate SSL certificates automatically
-   - Mount your local code for hot-reloading
-   - Cache Go dependencies between builds
-   - Start the application on https://localhost:8080
-
-2. For subsequent runs, you can use:
-   ```bash
-   docker-compose up --build  # Force rebuild
-   docker-compose up -d      # Run in background
-   ```
-
-3. Stop the development environment:
-   ```bash
-   docker-compose down
-   ```
-
-### Production Mode
-
-1. Build the production image:
-   ```bash
-   docker build -t pedal-demo .
-   ```
-
-2. Run the container:
-   ```bash
-   docker run -p 8080:8080 \
-     --env-file .env \
-     pedal-demo
-   ```
-
 
 ## 📋 Prerequisites
 
@@ -269,7 +250,6 @@ Response:
 }
 ```
 
-
 ## 📦 Dependencies
 
 - [github.com/caarlos0/env](https://github.com/caarlos0/env) - Environment variable parsing
@@ -281,3 +261,45 @@ Response:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## 🐳 Docker Setup
+
+The project includes Docker support for both development and production environments.
+
+### Development Mode
+
+1. Start the development environment:
+   ```bash
+   docker-compose up
+   ```
+
+   This will:
+   - Build the development container
+   - Generate SSL certificates automatically
+   - Mount your local code for hot-reloading
+   - Cache Go dependencies between builds
+   - Start the application on https://localhost:8080
+
+2. For subsequent runs, you can use:
+   ```bash
+   docker-compose up --build  # Force rebuild
+   docker-compose up -d      # Run in background
+   ```
+
+3. Stop the development environment:
+   ```bash
+   docker-compose down
+   ```
+
+### Production Mode
+
+1. Build the production image:
+   ```bash
+   docker build -t pedal-demo .
+   ```
+
+2. Run the container:
+   ```bash
+   docker run -p 8080:8080 \
+     --env-file .env \
+     pedal-demo
+   ```
