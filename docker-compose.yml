@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder  # Use builder stage for development
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+    environment:
+      - GO_ENV=development
+    command: go run pedal-demo.go
+    depends_on:
+      - certs
+
+  certs:
+    image: alpine:latest
+    volumes:
+      - ./certs:/certs
+    command: sh -c "mkdir -p /certs && cd /certs && openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout server.key -out server.crt -subj '/CN=localhost'"
+
+volumes:
+  go-mod-cache: 

@@ -39,6 +39,50 @@ A Go application that handles user creation and subscription management between 
    https://localhost:8080/demo
    ```
 
+## 🐳 Docker Setup
+
+The project includes Docker support for both development and production environments.
+
+### Development Mode
+
+1. Start the development environment:
+   ```bash
+   docker-compose up
+   ```
+
+   This will:
+   - Build the development container
+   - Generate SSL certificates automatically
+   - Mount your local code for hot-reloading
+   - Cache Go dependencies between builds
+   - Start the application on https://localhost:8080
+
+2. For subsequent runs, you can use:
+   ```bash
+   docker-compose up --build  # Force rebuild
+   docker-compose up -d      # Run in background
+   ```
+
+3. Stop the development environment:
+   ```bash
+   docker-compose down
+   ```
+
+### Production Mode
+
+1. Build the production image:
+   ```bash
+   docker build -t pedal-demo .
+   ```
+
+2. Run the container:
+   ```bash
+   docker run -p 8080:8080 \
+     --env-file .env \
+     pedal-demo
+   ```
+
+
 ## 📋 Prerequisites
 
 - Go 1.16 or later
