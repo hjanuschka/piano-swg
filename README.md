@@ -30,7 +30,12 @@ A Go application that handles user creation and subscription management between 
 - [API Endpoints](#-api-endpoints)
   - [POST /swg/create-user](#post-swgcreate-user)
   - [POST /swg/webhook](#post-swgwebhook)
+  - [POST /swg/check-linking-shown](#post-swgcheck-linking-shown)
+  - [POST /swg/set-linking-shown](#post-swgset-linking-shown)
 - [Dependencies](#-dependencies)
+- [Subscription Linking](#-subscription-linking)
+  - [Prerequisites](#prerequisites)
+  - [Implementation Example](#implementation-example)
 - [License](#-license)
 
 
@@ -250,12 +255,130 @@ Response:
 }
 ```
 
+### POST /swg/check-linking-shown
+
+Checks if the subscription linking prompt has already been shown to a user.
+
+Request body:
+```json
+{
+    "piano_id": "string"
+}
+```
+
+Response:
+```json
+{
+    "shown": true|false
+}
+```
+
+### POST /swg/set-linking-shown
+
+Sets a flag indicating that the subscription linking prompt has been shown to a user.
+
+Request body:
+```json
+{
+    "piano_id": "string"
+}
+```
+
+Response:
+```json
+{
+    "status": "success",
+    "data": null
+}
+```
+
 ## 📦 Dependencies
 
 - [github.com/caarlos0/env](https://github.com/caarlos0/env) - Environment variable parsing
 - [github.com/golang-jwt/jwt](https://github.com/golang-jwt/jwt) - JWT token handling
 - [github.com/joho/godotenv](https://github.com/joho/godotenv) - .env file loading
 - [golang.org/x/oauth2/google](https://golang.org/x/oauth2/google) - Google OAuth2 support
+
+## 🔄 Subscription Linking
+
+The subscription linking feature allows users to link their existing Piano subscriptions with their Google accounts. 
+
+
+### Prerequisites
+
+1. **Create Custom Field in Piano**:
+   - Log in to your Piano dashboard
+   - Navigate to "Settings" > "Custom Fields"
+   - Click "Create Field"
+   - Set field name: `swg_linking_shown`
+   - Set type: "Boolean"
+   - Set default value: "false"
+
+2. **API Endpoints**:
+   - `/swg/check-linking-shown`: Checks if a user has already been shown the linking prompt
+   - `/swg/set-linking-shown`: Sets the flag indicating that a user has been shown the linking prompt
+
+### Implementation Example
+
+1. First, add this JavaScript helper to your page:
+
+```javascript
+function checkAndShowLinking() {
+  // Check if Piano is loaded and user is valid
+  if (typeof tp === 'undefined' || typeof tp.pianoId === 'undefined' || !tp.pianoId.isUserValid()) {
+    return;
+  }
+  
+  const pianoId = tp.pianoId.getUser().uid;
+  
+  // Check if linking already shown
+  fetch('/swg/check-linking-shown', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ piano_id: pianoId }),
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (!data.shown) {
+      // If not shown, trigger the linking process
+      window.callSwg(function(subscriptions) {
+        subscriptions
+          .linkSubscription({
+            publisherProvidedId: pianoId,
+          })
+          .then(result => {
+            if (result.success) {
+              // Set the flag that linking was shown
+              fetch('/swg/set-linking-shown', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ piano_id: pianoId }),
+              });
+            }
+          })
+          .catch(error => console.error('Linking error:', error));
+      });
+    }
+  })
+  .catch(error => console.error('Check linking error:', error));
+}
+
+// Helper function to get the swg subscriptions object
+function callSwg(callback) {
+  if (window.SWG) {
+    window.SWG.push(subscriptions => {
+      callback(subscriptions);
+    });
+  }
+}
+
+// Call the function with a delay to ensure Piano is loaded
+setTimeout(checkAndShowLinking, 5000);
+```
 
 ## 📄 License
 

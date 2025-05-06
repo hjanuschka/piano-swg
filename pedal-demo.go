@@ -529,6 +529,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/swg/webhook", s.handleWebhook)
 	mux.HandleFunc("/swg/create-user", s.handleCreateUser)
 	mux.HandleFunc("/demo", s.handleDemo)
+	mux.HandleFunc("/swg/check-linking-shown", s.handleCheckLinkingShown)
+	mux.HandleFunc("/swg/set-linking-shown", s.handleSetLinkingShown)
 
 	// Serve static files
 	fs := http.FileServer(http.Dir("static"))
@@ -953,6 +955,121 @@ func (a *PianoAPI) createPianoUser(email string, password string) (string, error
 		return "", fmt.Errorf("failed to create user: no UID returned")
 	}
 	return cr.Data.UID, nil
+}
+
+// CheckLinkingResponse represents the response for the check-linking-shown endpoint
+type CheckLinkingResponse struct {
+	Shown bool `json:"shown"`
+}
+
+// handleCheckLinkingShown checks if the swg_linking_shown custom field is set
+func (s *Server) handleCheckLinkingShown(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.logger.Error("Method not allowed: %s", r.Method)
+		SendResponse(w, r, http.StatusMethodNotAllowed, NewErrorResponse(fmt.Errorf("method not allowed")))
+		return
+	}
+
+	var req struct {
+		PianoID string `json:"piano_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error("Invalid request body: %v", err)
+		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("invalid request body: %w", err)))
+		return
+	}
+
+	if req.PianoID == "" {
+		s.logger.Error("Piano ID is required")
+		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("piano ID is required")))
+		return
+	}
+
+	s.logger.Info("Checking if linking shown for user with Piano ID: %s", req.PianoID)
+
+	// Get user custom fields from Piano API
+	params := url.Values{}
+	params.Add("uid", req.PianoID)
+	body, err := s.pianoAPI.V3Request("/publisher/user/get", params, nil)
+	if err != nil {
+		s.logger.Error("Failed to get user from Piano: %v", err)
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to get user from Piano: %w", err)))
+		return
+	}
+
+	// Parse the response
+	var result struct {
+		User struct {
+			CustomFields []map[string]interface{} `json:"custom_fields"`
+		} `json:"user"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		s.logger.Error("Failed to parse Piano API response: %v", err)
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to parse Piano API response: %w", err)))
+		return
+	}
+
+	// Check for the swg_linking_shown custom field
+	shown := false
+	for _, field := range result.User.CustomFields {
+		if fieldName, ok := field["fieldName"]; ok && fieldName == "swg_linking_shown" {
+			if value, ok := field["value"]; ok && value == "true" {
+				shown = true
+				break
+			}
+		}
+	}
+
+	s.logger.Info("Linking shown status for user with Piano ID %s: %v", req.PianoID, shown)
+	SendResponse(w, r, http.StatusOK, CheckLinkingResponse{Shown: shown})
+}
+
+// handleSetLinkingShown sets the swg_linking_shown custom field
+func (s *Server) handleSetLinkingShown(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.logger.Error("Method not allowed: %s", r.Method)
+		SendResponse(w, r, http.StatusMethodNotAllowed, NewErrorResponse(fmt.Errorf("method not allowed")))
+		return
+	}
+
+	var req struct {
+		PianoID string `json:"piano_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error("Invalid request body: %v", err)
+		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("invalid request body: %w", err)))
+		return
+	}
+
+	if req.PianoID == "" {
+		s.logger.Error("Piano ID is required")
+		SendResponse(w, r, http.StatusBadRequest, NewErrorResponse(fmt.Errorf("piano ID is required")))
+		return
+	}
+
+	s.logger.Info("Setting linking shown for user with Piano ID: %s", req.PianoID)
+
+	// Set the custom field
+	fields := map[string]interface{}{
+		"swg_linking_shown": "true",
+	}
+	cFieldsJSON, _ := json.Marshal(fields)
+
+	params := url.Values{}
+	params.Add("uid", req.PianoID)
+	params.Add("custom_fields", string(cFieldsJSON))
+	_, err := s.pianoAPI.V1Request("/publisher/form", params, nil)
+	if err != nil {
+		s.logger.Error("Failed to set custom field: %v", err)
+		SendResponse(w, r, http.StatusInternalServerError, NewErrorResponse(fmt.Errorf("failed to set custom field: %w", err)))
+		return
+	}
+
+	s.logger.Info("Successfully set linking shown for user with Piano ID: %s", req.PianoID)
+	SendResponse(w, r, http.StatusOK, NewResponse("success", nil))
 }
 
 func main() {

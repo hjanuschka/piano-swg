@@ -27,9 +27,7 @@
   eaLoader("https://news.google.com/swg/js/v1/swg-gaa.js", false, () => {
     console.log("EA: sdk's loaded");
     const urlParams = new URLSearchParams(location.search);
-    const googleApiClientId = "520490508639-tcq3pkvmih1oo0c5m0ssqehadungj1eb.apps.googleusercontent.com";
-    const allowedReferrers = ["www.krone.at", "hja-www.krone.at", "hja-trinity.krone.at"];
-    const showcaseEntitlement = urlParams.get("showcaseEntitlement");
+    
 
     function callSwg(callback) {
       (self.SWG = self.SWG || []).push(callback);
