@@ -9,6 +9,7 @@ A Go application that handles user creation and subscription management between 
 | 🔐 User Creation | Creates Piano users from SwG reader IDs |
 | 🔄 Subscription Events | Handles subscription start/cancel/renew events via webhook |
 | ⚙️ Environment Config | Flexible environment-based configuration |
+| 🔗 Subscription Linking | Allows users to link Piano subscriptions with Google accounts for enhanced content visibility |
 
 ## 📑 Table of Contents
 
@@ -303,6 +304,7 @@ Response:
 
 The subscription linking feature allows users to link their existing Piano subscriptions with their Google accounts. 
 
+> With the Subscription Linking API in Reader Revenue Manager (RRM), paying readers can link their subscriptions with publishers and web publishers to their Google accounts. Content from their paid subscriptions will then be highlighted in Google Search, Discover, and other Google products.
 
 ### Prerequisites
 
@@ -314,19 +316,32 @@ The subscription linking feature allows users to link their existing Piano subsc
    - Set type: "Boolean"
    - Set default value: "false"
 
-2. **API Endpoints**:
+2. **Configure ea-standalone.js**:
+   - Ensure the `ea-standalone.js` script is properly loaded on your pages
+   - This script initializes the SwG client and provides the necessary `callSwg` function
+   - The script should be configured with your publication ID and appropriate event handlers
+
+3. **API Endpoints**:
    - `/swg/check-linking-shown`: Checks if a user has already been shown the linking prompt
    - `/swg/set-linking-shown`: Sets the flag indicating that a user has been shown the linking prompt
 
 ### Implementation Example
 
-1. First, add this JavaScript helper to your page:
+1. **Include ea-standalone.js in your page**:
+
+```html
+<script src="/static/ea-standalone.js"></script>
+```
+
+This script provides the `window.callSwg` function needed for subscription operations and initializes the SwG client.
+
+2. **Add subscription linking code to your page**:
 
 ```javascript
-function checkAndShowLinking() {
+function showSubLinking(subscriptions) {
   // Check if Piano is loaded and user is valid
   if (typeof tp === 'undefined' || typeof tp.pianoId === 'undefined' || !tp.pianoId.isUserValid()) {
-    return;
+    return false;
   }
   
   const pianoId = tp.pianoId.getUser().uid;
@@ -343,42 +358,39 @@ function checkAndShowLinking() {
   .then(data => {
     if (!data.shown) {
       // If not shown, trigger the linking process
-      window.callSwg(function(subscriptions) {
-        subscriptions
-          .linkSubscription({
-            publisherProvidedId: pianoId,
-          })
-          .then(result => {
-            if (result.success) {
-              // Set the flag that linking was shown
-              fetch('/swg/set-linking-shown', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ piano_id: pianoId }),
-              });
-            }
-          })
-          .catch(error => console.error('Linking error:', error));
-      });
+      subscriptions
+        .linkSubscription({
+          publisherProvidedId: pianoId,
+        })
+        .then(result => {
+          if (result.success) {
+            // Set the flag that linking was shown
+            fetch('/swg/set-linking-shown', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ piano_id: pianoId }),
+            });
+          }
+        })
+        .catch(error => console.error('Linking error:', error));
     }
   })
   .catch(error => console.error('Check linking error:', error));
+  
+  return true;
 }
 
-// Helper function to get the swg subscriptions object
-function callSwg(callback) {
-  if (window.SWG) {
-    window.SWG.push(subscriptions => {
-      callback(subscriptions);
-    });
-  }
-}
-
-// Call the function with a delay to ensure Piano is loaded
-setTimeout(checkAndShowLinking, 5000);
+// Usage with ea-standalone.js
+window.callSwg(function(subscriptions) {
+  setTimeout(() => {
+    showSubLinking(subscriptions);
+  }, 5000);
+});
 ```
+
+Note: The `window.callSwg` function is provided by ea-standalone.js, which also ensures that the necessary Google scripts are loaded and configured correctly.
 
 ## 📄 License
 
